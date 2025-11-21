@@ -48,6 +48,7 @@ export interface ShopifyConfig {
 
 export enum ViewState {
   HOME = 'HOME',
+  EXPLORE = 'EXPLORE',
   STORE_DETAIL = 'STORE_DETAIL',
   PRODUCT_DETAIL = 'PRODUCT_DETAIL',
   CART = 'CART',

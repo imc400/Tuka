@@ -187,6 +187,9 @@ async function syncStoreProducts(domain, accessToken) {
     }
 
     // Upsert products
+    let productErrors = 0;
+    let variantErrors = 0;
+
     for (const product of shopifyProducts) {
       const defaultVariant = product.variants[0];
 
@@ -207,7 +210,13 @@ async function syncStoreProducts(domain, accessToken) {
         synced_at: new Date().toISOString(),
       };
 
-      await supabase.from('products').upsert(productData, { onConflict: 'id' });
+      const { error: productError } = await supabase.from('products').upsert(productData, { onConflict: 'id' });
+
+      if (productError) {
+        productErrors++;
+        console.error(`  ❌ Failed to upsert product ${product.id}: ${productError.message}`);
+        continue; // Skip variants if product failed
+      }
 
       if (existingIds.has(product.id)) {
         productsUpdated++;
@@ -233,8 +242,17 @@ async function syncStoreProducts(domain, accessToken) {
           weight_unit: variant.weight_unit,
         };
 
-        await supabase.from('product_variants').upsert(variantData, { onConflict: 'id' });
+        const { error: variantError } = await supabase.from('product_variants').upsert(variantData, { onConflict: 'id' });
+
+        if (variantError) {
+          variantErrors++;
+          console.error(`  ❌ Failed to upsert variant ${variant.id}: ${variantError.message}`);
+        }
       }
+    }
+
+    if (productErrors > 0 || variantErrors > 0) {
+      console.error(`  ⚠️  Encountered errors: ${productErrors} product errors, ${variantErrors} variant errors`);
     }
 
     const duration = Math.round((Date.now() - startTime) / 1000);

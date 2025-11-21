@@ -34,23 +34,48 @@ export const generateMarketplaceData = async (): Promise<Store[]> => {
       try {
         console.log(`🔍 [MarketplaceService] Loading products for ${config.domain}...`);
 
-        // Fetch cached products from Supabase
-        const { data: cachedProducts, error } = await supabase
-          .from('products')
-          .select(`
-            *,
-            product_variants (*)
-          `)
-          .eq('store_domain', config.domain)
-          .eq('available', true)
-          .order('synced_at', { ascending: false });
+        // Fetch ALL products with pagination (Supabase default limit is 1000)
+        // This prevents missing products when a store has >1000 items
+        const allProducts: any[] = [];
+        const pageSize = 1000;
+        let page = 0;
+        let hasMore = true;
 
-        if (error) {
-          console.error(`❌ [MarketplaceService] Error loading products from cache for ${config.domain}:`, error);
-          console.error('Error details:', JSON.stringify(error, null, 2));
-          continue;
+        while (hasMore) {
+          const from = page * pageSize;
+          const to = from + pageSize - 1;
+
+          const { data: pageProducts, error } = await supabase
+            .from('products')
+            .select(`
+              *,
+              product_variants (*)
+            `)
+            .eq('store_domain', config.domain)
+            .eq('available', true)
+            .order('synced_at', { ascending: false })
+            .range(from, to);
+
+          if (error) {
+            console.error(`❌ [MarketplaceService] Error loading products from cache for ${config.domain}:`, error);
+            console.error('Error details:', JSON.stringify(error, null, 2));
+            break;
+          }
+
+          if (pageProducts && pageProducts.length > 0) {
+            allProducts.push(...pageProducts);
+            hasMore = pageProducts.length === pageSize; // If we got less than pageSize, we're done
+            page++;
+
+            if (hasMore) {
+              console.log(`  📄 Page ${page}: Loaded ${pageProducts.length} products (total so far: ${allProducts.length})`);
+            }
+          } else {
+            hasMore = false;
+          }
         }
 
+        const cachedProducts = allProducts;
         console.log(`📦 [MarketplaceService] Retrieved ${cachedProducts?.length || 0} products for ${config.domain}`);
 
         // 3. Transform cached products to app format
