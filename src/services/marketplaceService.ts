@@ -18,8 +18,11 @@ export const generateMarketplaceData = async (): Promise<Store[]> => {
   const stores: Store[] = [];
 
   try {
+    console.log('🔄 [MarketplaceService] Starting marketplace data load...');
+
     // 1. Fetch all registered Shopify stores from Supabase
     const registeredConfigs = await getRegisteredConfigs();
+    console.log(`📋 [MarketplaceService] Found ${registeredConfigs.length} registered stores`);
 
     if (registeredConfigs.length === 0) {
       console.warn("No Shopify stores registered yet. Add stores via the Admin Dashboard.");
@@ -29,6 +32,8 @@ export const generateMarketplaceData = async (): Promise<Store[]> => {
     // 2. For each store, fetch products from cache
     for (const config of registeredConfigs) {
       try {
+        console.log(`🔍 [MarketplaceService] Loading products for ${config.domain}...`);
+
         // Fetch cached products from Supabase
         const { data: cachedProducts, error } = await supabase
           .from('products')
@@ -41,9 +46,12 @@ export const generateMarketplaceData = async (): Promise<Store[]> => {
           .order('synced_at', { ascending: false });
 
         if (error) {
-          console.error(`Error loading products from cache for ${config.domain}:`, error);
+          console.error(`❌ [MarketplaceService] Error loading products from cache for ${config.domain}:`, error);
+          console.error('Error details:', JSON.stringify(error, null, 2));
           continue;
         }
+
+        console.log(`📦 [MarketplaceService] Retrieved ${cachedProducts?.length || 0} products for ${config.domain}`);
 
         // 3. Transform cached products to app format
         const products: Product[] = (cachedProducts || []).map((p: any) => ({
@@ -76,25 +84,28 @@ export const generateMarketplaceData = async (): Promise<Store[]> => {
         };
 
         stores.push(store);
-        console.log(`✅ Loaded ${products.length} products from ${config.domain} (from cache)`);
+        console.log(`✅ [MarketplaceService] Loaded ${products.length} products from ${config.domain} (from cache)`);
 
       } catch (error) {
-        console.error(`Failed to load store ${config.domain}:`, error);
+        console.error(`❌ [MarketplaceService] Failed to load store ${config.domain}:`, error);
+        console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
         continue;
       }
     }
 
     if (stores.length === 0) {
-      console.warn('⚠️  No products found in cache. Run sync first: npm run sync');
+      console.warn('⚠️ [MarketplaceService] No products found in cache. Run sync first: npm run sync');
     } else {
       const totalProducts = stores.reduce((sum, store) => sum + store.products.length, 0);
-      console.log(`🎉 Successfully loaded ${stores.length} stores with ${totalProducts} total products (from cache)`);
+      console.log(`🎉 [MarketplaceService] Successfully loaded ${stores.length} stores with ${totalProducts} total products (from cache)`);
     }
 
+    console.log(`✅ [MarketplaceService] Returning ${stores.length} stores`);
     return stores;
 
   } catch (error) {
-    console.error("Failed to load marketplace data:", error);
+    console.error("❌ [MarketplaceService] Failed to load marketplace data:", error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
     return [];
   }
 };

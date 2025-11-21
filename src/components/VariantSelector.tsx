@@ -22,6 +22,11 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
     return null;
   }
 
+  // Si solo hay una variante y es "Default Title", no mostrar selector
+  if (variants.length === 1 && variants[0].title === 'Default Title') {
+    return null;
+  }
+
   const formatPrice = (price: number): string => {
     return new Intl.NumberFormat('es-CL', {
       style: 'currency',

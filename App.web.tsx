@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import { supabaseWeb as supabase } from './src/lib/supabaseWeb';
 import './index.css';
-import { Settings, Plus, Trash2, ExternalLink, Loader2, Save, Edit2, X, RefreshCw } from 'lucide-react';
+import { Settings, Plus, Trash2, ExternalLink, Loader2, Save, Edit2, X, RefreshCw, Bell, Send, Clock, Users, TrendingUp } from 'lucide-react';
 
 const AdminApp = () => {
   const [stores, setStores] = useState<any[]>([]);
@@ -19,6 +19,16 @@ const AdminApp = () => {
     bannerUrl: '',
     themeColor: '#000000'
   });
+
+  // Notification modal states
+  const [notificationModal, setNotificationModal] = useState<any | null>(null);
+  const [notificationTitle, setNotificationTitle] = useState('');
+  const [notificationBody, setNotificationBody] = useState('');
+  const [notificationProductId, setNotificationProductId] = useState('');
+  const [subscriberCount, setSubscriberCount] = useState(0);
+  const [notificationHistory, setNotificationHistory] = useState<any[]>([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const [sendingNotification, setSendingNotification] = useState(false);
 
   useEffect(() => {
     fetchStores();
@@ -344,6 +354,126 @@ const AdminApp = () => {
     }
   };
 
+  // Notification functions
+  const openNotificationModal = async (store: any) => {
+    setNotificationModal(store);
+    setNotificationTitle('');
+    setNotificationBody('');
+    setNotificationProductId('');
+    setLoadingNotifications(true);
+
+    // Load subscriber count
+    try {
+      const { data: subscribers, error } = await supabase.rpc('get_store_subscribers', {
+        store_domain: store.domain,
+      });
+
+      if (!error && subscribers) {
+        setSubscriberCount(subscribers.length);
+      }
+    } catch (error) {
+      console.error('Error loading subscribers:', error);
+    }
+
+    // Load notification history
+    try {
+      const { data, error } = await supabase
+        .from('notifications_sent')
+        .select('*')
+        .eq('store_id', store.domain)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (!error && data) {
+        setNotificationHistory(data);
+      }
+    } catch (error) {
+      console.error('Error loading history:', error);
+    }
+
+    setLoadingNotifications(false);
+  };
+
+  const closeNotificationModal = () => {
+    setNotificationModal(null);
+    setNotificationTitle('');
+    setNotificationBody('');
+    setNotificationProductId('');
+    setSubscriberCount(0);
+    setNotificationHistory([]);
+  };
+
+  const sendNotification = async () => {
+    if (!notificationModal || !notificationTitle.trim() || !notificationBody.trim()) {
+      alert('Por favor completa el título y el mensaje');
+      return;
+    }
+
+    if (subscriberCount === 0) {
+      alert('Esta tienda no tiene suscriptores aún');
+      return;
+    }
+
+    if (!confirm(`¿Enviar notificación a ${subscriberCount} suscriptores?`)) {
+      return;
+    }
+
+    setSendingNotification(true);
+
+    try {
+      // Create notification record
+      const { data: notificationRecord, error: recordError } = await supabase
+        .from('notifications_sent')
+        .insert({
+          store_id: notificationModal.domain,
+          store_name: notificationModal.store_name || notificationModal.domain,
+          title: notificationTitle.trim(),
+          body: notificationBody.trim(),
+          data: notificationProductId.trim() ? { productId: notificationProductId.trim(), storeId: notificationModal.domain, type: 'product' } : {},
+          total_sent: subscriberCount,
+          sent_at: new Date().toISOString(),
+          sent_by_admin: true,
+        })
+        .select()
+        .single();
+
+      if (recordError) {
+        throw recordError;
+      }
+
+      // Here you would normally call Expo's push notification service
+      // For now, we'll just show success message
+      alert(`✅ Notificación registrada exitosamente!\n\nSe enviará a ${subscriberCount} suscriptores.\n\nNota: El envío real requiere un servidor backend con Expo Push Notifications.`);
+
+      // Reload history
+      openNotificationModal(notificationModal);
+
+      // Clear form
+      setNotificationTitle('');
+      setNotificationBody('');
+      setNotificationProductId('');
+    } catch (error: any) {
+      alert('Error al enviar notificación: ' + error.message);
+      console.error('Error sending notification:', error);
+    } finally {
+      setSendingNotification(false);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 60) return `Hace ${minutes}m`;
+    if (hours < 24) return `Hace ${hours}h`;
+    if (days < 7) return `Hace ${days}d`;
+    return date.toLocaleDateString('es-CL');
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 text-gray-900 font-sans">
       <nav className="bg-slate-900 text-white p-4 sticky top-0 z-50 shadow-md">
@@ -627,6 +757,12 @@ const AdminApp = () => {
 
                     <div className="flex sm:flex-col gap-2 w-full sm:w-auto">
                       <button
+                        onClick={() => openNotificationModal(store)}
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors text-sm font-medium"
+                      >
+                        <Bell size={16} /> Notificaciones
+                      </button>
+                      <button
                         onClick={() => handleSync(store)}
                         disabled={syncing === store.domain}
                         className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
@@ -654,6 +790,181 @@ const AdminApp = () => {
           </div>
         </div>
       </main>
+
+      {/* Notification Modal */}
+      {notificationModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={closeNotificationModal}>
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="sticky top-0 bg-purple-600 text-white p-6 rounded-t-2xl">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h2 className="text-2xl font-bold flex items-center gap-2 mb-1">
+                    <Bell size={28} />
+                    Push Notifications
+                  </h2>
+                  <p className="text-purple-100 text-sm">
+                    {notificationModal.store_name || notificationModal.domain}
+                  </p>
+                </div>
+                <button
+                  onClick={closeNotificationModal}
+                  className="text-white hover:bg-purple-700 p-2 rounded-lg transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 gap-4 mt-6">
+                <div className="bg-purple-500 bg-opacity-50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 text-purple-100 text-sm mb-1">
+                    <Users size={16} />
+                    <span>Suscriptores</span>
+                  </div>
+                  <p className="text-3xl font-bold">{subscriberCount}</p>
+                </div>
+                <div className="bg-purple-500 bg-opacity-50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 text-purple-100 text-sm mb-1">
+                    <Clock size={16} />
+                    <span>Notificaciones enviadas</span>
+                  </div>
+                  <p className="text-3xl font-bold">{notificationHistory.length}</p>
+                </div>
+              </div>
+            </div>
+
+            {loadingNotifications ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="animate-spin text-purple-600 mb-2" size={32} />
+                <p className="text-gray-500">Cargando...</p>
+              </div>
+            ) : (
+              <div className="p-6 space-y-6">
+                {/* Send Notification Form */}
+                <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-6">
+                  <h3 className="font-bold text-lg text-gray-900 mb-4 flex items-center gap-2">
+                    <Send size={20} className="text-purple-600" />
+                    Enviar Nueva Notificación
+                  </h3>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Título <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full p-3 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+                        placeholder="Ej: ¡Nueva colección disponible!"
+                        value={notificationTitle}
+                        onChange={(e) => setNotificationTitle(e.target.value)}
+                        maxLength={50}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">{notificationTitle.length}/50 caracteres</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Mensaje <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        className="w-full p-3 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none resize-none"
+                        placeholder="Ej: Descubre nuestros nuevos productos con 20% de descuento"
+                        rows={3}
+                        value={notificationBody}
+                        onChange={(e) => setNotificationBody(e.target.value)}
+                        maxLength={150}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">{notificationBody.length}/150 caracteres</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        ID del Producto <span className="text-gray-400 text-xs font-normal">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full p-3 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+                        placeholder="Ej: gid://shopify/Product/123456"
+                        value={notificationProductId}
+                        onChange={(e) => setNotificationProductId(e.target.value)}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Si incluyes un ID de producto, la notificación abrirá ese producto en la app
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={sendNotification}
+                      disabled={sendingNotification || !notificationTitle.trim() || !notificationBody.trim() || subscriberCount === 0}
+                      className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:cursor-not-allowed"
+                    >
+                      {sendingNotification ? (
+                        <>
+                          <Loader2 size={20} className="animate-spin" />
+                          Enviando...
+                        </>
+                      ) : (
+                        <>
+                          <Send size={20} />
+                          Enviar a {subscriberCount} suscriptores
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Notification History */}
+                <div>
+                  <h3 className="font-bold text-lg text-gray-900 mb-4 flex items-center gap-2">
+                    <Clock size={20} className="text-gray-600" />
+                    Historial de Notificaciones
+                  </h3>
+
+                  {notificationHistory.length === 0 ? (
+                    <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl p-8 text-center">
+                      <p className="text-gray-500">No se han enviado notificaciones aún</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {notificationHistory.map((notification) => (
+                        <div key={notification.id} className="bg-white border-2 border-gray-200 rounded-xl p-4 hover:border-purple-300 transition-colors">
+                          <div className="flex justify-between items-start mb-2">
+                            <h4 className="font-bold text-gray-900">{notification.title}</h4>
+                            <span className="text-xs text-gray-500">{formatDate(notification.created_at)}</span>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-3">{notification.body}</p>
+                          <div className="flex flex-wrap gap-3 text-xs">
+                            <div className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                              <Users size={12} />
+                              <span>{notification.total_sent} enviados</span>
+                            </div>
+                            <div className="flex items-center gap-1 bg-green-50 text-green-700 px-2 py-1 rounded">
+                              <TrendingUp size={12} />
+                              <span>{notification.total_opened || 0} abiertos</span>
+                            </div>
+                            {notification.total_sent > 0 && (
+                              <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden self-center">
+                                <div
+                                  className="bg-green-500 h-full rounded-full transition-all"
+                                  style={{
+                                    width: `${((notification.total_opened || 0) / notification.total_sent) * 100}%`,
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

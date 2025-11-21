@@ -26,6 +26,7 @@ export interface TransactionData {
   totalAmount: number;
   storeSplits: Record<string, number>; // { domain: amount }
   isTest?: boolean;
+  userId?: string; // UUID del usuario autenticado (opcional para guest checkout)
 }
 
 export interface ShopifyOrderItem {
@@ -89,6 +90,7 @@ export async function createPendingTransaction(
         cart_items: data.cartItems,
         store_splits: storeSplits,
         is_test: data.isTest || false,
+        user_id: data.userId || null, // Asociar a usuario si está autenticado
       })
       .select('id')
       .single();

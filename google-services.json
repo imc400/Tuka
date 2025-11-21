@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "830413264404",
+    "project_id": "app-marketplace-fb841",
+    "storage_bucket": "app-marketplace-fb841.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:830413264404:android:541759c7e23e11efa4f901",
+        "android_client_info": {
+          "package_name": "com.shopunite.marketplace"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD292HpnixC66XGdPpIY6beJMtvSrU282Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

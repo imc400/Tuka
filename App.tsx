@@ -41,6 +41,25 @@ import {
   checkPaymentStatus
 } from './src/services/mercadopagoService';
 import { CHILEAN_REGIONS, getComunasByRegion } from './src/data/chileanRegions';
+import { AuthProvider, useAuth } from './src/contexts/AuthContext';
+import LoginScreen from './src/screens/LoginScreen';
+import SignUpScreen from './src/screens/SignUpScreen';
+import OrdersScreen from './src/screens/OrdersScreen';
+import OrderDetailScreen from './src/screens/OrderDetailScreen';
+import { UserOrder } from './src/services/ordersService';
+import { getDefaultAddress, saveCheckoutAddress } from './src/services/addressService';
+import AddressesScreen from './src/screens/AddressesScreen';
+import NotificationsAdminScreen from './src/screens/NotificationsAdminScreen';
+import * as cartService from './src/services/cartService';
+import {
+  getUserSubscriptions,
+  subscribeToStore,
+  unsubscribeFromStore
+} from './src/services/subscriptionsService';
+import {
+  configureNotifications,
+  registerForPushNotifications
+} from './src/services/pushNotificationService';
 
 // --- Styled Components (NativeWind) ---
 // In NativeWind 4, we can use className directly, but sometimes styled() is useful. 
@@ -103,9 +122,10 @@ const BottomNav = ({ currentView, onChangeView, cartCount }: { currentView: View
   );
 };
 
-// --- Main App ---
+// --- Main App Content ---
 
-export default function App() {
+function AppContent() {
+  const { user, profile, isLoading: authLoading, isAuthenticated, signOut } = useAuth();
   const [view, setView] = useState<ViewState>(ViewState.HOME);
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,8 +133,10 @@ export default function App() {
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<UserOrder | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [subscriptions, setSubscriptions] = useState<string[]>([]);
+  const [selectedStoreForNotifications, setSelectedStoreForNotifications] = useState<{ id: string; name: string } | null>(null);
 
   // Toasts are simplified to Alerts for now, or custom view overlay
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'info' | 'admin' } | null>(null);
@@ -153,7 +175,139 @@ export default function App() {
 
   useEffect(() => {
     loadMarketplace();
+    // Configurar notificaciones al iniciar la app
+    configureNotifications();
   }, []);
+
+  // Cargar suscripciones del usuario cuando inicie sesión
+  useEffect(() => {
+    if (user) {
+      loadUserSubscriptions();
+      // Registrar para notificaciones push
+      registerPushNotifications(user.id);
+    } else {
+      // Si no hay usuario, limpiar suscripciones
+      setSubscriptions([]);
+    }
+  }, [user]);
+
+  // Función para registrar notificaciones push
+  const registerPushNotifications = async (userId: string) => {
+    console.log('[App] Registering push notifications for user:', userId);
+    const result = await registerForPushNotifications(userId);
+
+    if (result.success) {
+      console.log('[App] Push notifications registered successfully:', result.token);
+      setToast({ msg: '🔔 Notificaciones activadas', type: 'success' });
+    } else {
+      console.log('[App] Failed to register push notifications:', result.error);
+      // No mostrar error al usuario si falla (puede ser que esté en simulador)
+    }
+  };
+
+  // Cargar carrito del usuario desde la DB cuando inicie sesión
+  useEffect(() => {
+    if (user) {
+      loadCart();
+    } else {
+      // Si no hay usuario, limpiar carrito
+      setCart([]);
+    }
+  }, [user]);
+
+  // Pre-llenar email del usuario en el checkout (el nombre y dirección se cargan en loadDefaultAddress)
+  useEffect(() => {
+    if (user) {
+      // Solo pre-llenar email (siempre)
+      if (user.email) {
+        setEmail(user.email);
+      }
+    } else {
+      // Si no hay usuario, limpiar campos del checkout (el carrito ya se limpia en el useEffect anterior)
+      setFullName('');
+      setEmail('');
+      setAddress('');
+      setCity('');
+      setRegion('');
+      setZipCode('');
+      setPhone('');
+      console.log('[App] Usuario deslogueado - checkout limpiado');
+    }
+  }, [user]);
+
+  // Cargar dirección por defecto cuando el usuario va al checkout
+  useEffect(() => {
+    if (view === ViewState.CHECKOUT && user) {
+      loadDefaultAddress();
+    }
+  }, [view, user]);
+
+  const loadDefaultAddress = async () => {
+    if (!user) return;
+
+    const { address: defaultAddr, error } = await getDefaultAddress(user.id);
+
+    if (defaultAddr) {
+      // Usuario tiene dirección guardada - usar esa
+      console.log('[App] Loading default address for user:', user.id);
+
+      if (defaultAddr.recipient_name) {
+        setFullName(defaultAddr.recipient_name);
+      }
+
+      if (defaultAddr.street) {
+        // Construir dirección completa desde los campos separados
+        let fullAddress = defaultAddr.street;
+        if (defaultAddr.street_number) fullAddress += ' ' + defaultAddr.street_number;
+        if (defaultAddr.apartment) fullAddress += ', ' + defaultAddr.apartment;
+        setAddress(fullAddress);
+      }
+
+      if (defaultAddr.city) setCity(defaultAddr.city);
+
+      if (defaultAddr.region) {
+        setRegion(defaultAddr.region);
+        handleRegionChange(defaultAddr.region);
+      }
+
+      if (defaultAddr.zip_code) setZipCode(defaultAddr.zip_code);
+      if (defaultAddr.phone) setPhone(defaultAddr.phone);
+
+      console.log('[App] Default address loaded successfully');
+    } else {
+      // Usuario NO tiene dirección guardada - usar datos del perfil
+      console.log('[App] No saved address, using profile data for user:', user.id);
+
+      if (user.user_metadata?.full_name) {
+        setFullName(user.user_metadata.full_name);
+      }
+      // Email ya está pre-llenado por el useEffect anterior
+    }
+  };
+
+  const loadUserSubscriptions = async () => {
+    if (!user) return;
+
+    const { subscriptions: userSubs, error } = await getUserSubscriptions(user.id);
+    if (error) {
+      console.error('Error cargando suscripciones:', error);
+    } else {
+      setSubscriptions(userSubs);
+    }
+  };
+
+  const loadCart = async () => {
+    if (!user) return;
+
+    console.log('[App] Loading cart from DB for user:', user.id);
+    const { cart: userCart, error } = await cartService.getCart(user.id);
+    if (error) {
+      console.error('[App] Error loading cart:', error);
+    } else {
+      setCart(userCart);
+      console.log('[App] Cart loaded:', userCart.length, 'items');
+    }
+  };
 
   const loadMarketplace = async (isRefreshing = false) => {
     if (isRefreshing) {
@@ -218,62 +372,113 @@ export default function App() {
       setView(ViewState.CART);
     } else if (view === ViewState.ADMIN_DASHBOARD) {
       setView(ViewState.PROFILE);
+    } else if (view === ViewState.NOTIFICATIONS_ADMIN) {
+      setView(ViewState.ADMIN_DASHBOARD);
+      setSelectedStoreForNotifications(null);
     } else {
       setView(ViewState.HOME);
     }
   };
 
   // Logic Helpers
-  const toggleSubscription = (storeId: string, storeName: string) => {
-    if (subscriptions.includes(storeId)) {
-      setSubscriptions(prev => prev.filter(id => id !== storeId));
-      setToast({ msg: `Dejaste de seguir a ${storeName}`, type: 'info' });
+  const toggleSubscription = async (storeId: string, storeName: string) => {
+    if (!user) {
+      Alert.alert('Iniciar sesión', 'Debes iniciar sesión para seguir tiendas');
+      return;
+    }
+
+    // Limpiar el prefijo "real-" si existe (storeId viene como "real-domain.myshopify.com")
+    const storeDomain = storeId.replace(/^real-/, '');
+
+    const isCurrentlySubscribed = subscriptions.includes(storeDomain);
+
+    if (isCurrentlySubscribed) {
+      // Desuscribirse
+      const { success, error } = await unsubscribeFromStore(user.id, storeDomain);
+      if (success) {
+        setSubscriptions(prev => prev.filter(id => id !== storeDomain));
+        setToast({ msg: `Dejaste de seguir a ${storeName}`, type: 'info' });
+      } else {
+        Alert.alert('Error', error || 'No se pudo desuscribir');
+      }
     } else {
-      setSubscriptions(prev => [...prev, storeId]);
-      setToast({ msg: `¡Suscrito a ${storeName}!`, type: 'success' });
+      // Suscribirse
+      const { success, error } = await subscribeToStore(user.id, storeDomain, storeName);
+      if (success) {
+        setSubscriptions(prev => [...prev, storeDomain]);
+        setToast({ msg: `¡Suscrito a ${storeName}!`, type: 'success' });
+      } else {
+        Alert.alert('Error', error || 'No se pudo suscribir');
+      }
     }
   };
 
-  const addToCart = (product: Product, store: Store, variant?: ProductVariant | null) => {
-    setCart(prev => {
-      // If variant exists, match by both product id and variant id
-      const cartKey = variant ? `${product.id}-${variant.id}` : product.id;
-      const existing = prev.find(item => {
-        if (variant) {
-          return item.id === product.id && item.selectedVariant?.id === variant.id;
-        }
-        return item.id === product.id && !item.selectedVariant;
-      });
-
-      if (existing) {
-        return prev.map(item => {
-          const itemKey = item.selectedVariant ? `${item.id}-${item.selectedVariant.id}` : item.id;
-          return itemKey === cartKey ? { ...item, quantity: item.quantity + 1 } : item;
+  const addToCart = async (product: Product, store: Store, variant?: ProductVariant | null) => {
+    if (!user) {
+      // Usuario no logueado - agregar al carrito local (memoria)
+      setCart(prev => {
+        const cartKey = variant ? `${product.id}-${variant.id}` : product.id;
+        const existing = prev.find(item => {
+          if (variant) {
+            return item.id === product.id && item.selectedVariant?.id === variant.id;
+          }
+          return item.id === product.id && !item.selectedVariant;
         });
-      }
 
-      return [...prev, {
-        ...product,
-        storeId: store.id,
-        storeName: store.name,
-        quantity: 1,
-        selectedVariant: variant || undefined,
-      }];
-    });
+        if (existing) {
+          return prev.map(item => {
+            const itemKey = item.selectedVariant ? `${item.id}-${item.selectedVariant.id}` : item.id;
+            return itemKey === cartKey ? { ...item, quantity: item.quantity + 1 } : item;
+          });
+        }
+
+        return [...prev, {
+          ...product,
+          storeId: store.id,
+          storeName: store.name,
+          quantity: 1,
+          selectedVariant: variant || undefined,
+        }];
+      });
+    } else {
+      // Usuario logueado - guardar en DB
+      await cartService.addToCart(user.id, product, store.name, store.id, variant);
+      await loadCart();
+    }
     setToast({ msg: 'Agregado al carrito', type: 'success' });
     setView(ViewState.STORE_DETAIL);
   };
 
-  const updateQuantity = (productId: string, delta: number) => {
-    setCart(prev => prev.map(item => {
-      if (item.id === productId) {
-        return { ...item, quantity: Math.max(0, item.quantity + delta) };
+  const updateQuantity = async (productId: string, delta: number, variantId?: string) => {
+    if (!user) {
+      // Usuario no logueado - actualizar en memoria
+      setCart(prev => prev.map(item => {
+        if (item.id === productId && (!variantId || item.selectedVariant?.id === variantId)) {
+          return { ...item, quantity: Math.max(0, item.quantity + delta) };
+        }
+        return item;
+      }).filter(item => item.quantity > 0));
+    } else {
+      // Usuario logueado - actualizar en DB
+      const item = cart.find(i => i.id === productId && (!variantId || i.selectedVariant?.id === variantId));
+      if (item) {
+        const newQuantity = item.quantity + delta;
+        await cartService.updateCartItemQuantity(user.id, productId, variantId || null, newQuantity);
+        await loadCart();
       }
-      return item;
-    }).filter(item => item.quantity > 0));
+    }
   };
 
-  const clearCart = () => setCart([]);
+  const clearCart = async () => {
+    if (!user) {
+      // Usuario no logueado - limpiar memoria
+      setCart([]);
+    } else {
+      // Usuario logueado - limpiar DB
+      await cartService.clearCart(user.id);
+      setCart([]);
+    }
+  };
 
   // Función de pago de prueba (sin MercadoPago)
   const handleTestPayment = async () => {
@@ -303,7 +508,8 @@ export default function App() {
         shippingInfo,
         totalAmount: cartTotal,
         storeSplits: {},
-        isTest: true
+        isTest: true,
+        userId: user?.id, // Asociar a usuario si está logueado
       });
 
       if (!result) {
@@ -316,6 +522,20 @@ export default function App() {
 
       // 3. Crear órdenes de prueba en la DB (sin llamar a Shopify)
       await createTestOrders(result.transactionId, cart);
+
+      // 3.5 Guardar dirección del checkout si el usuario está logueado
+      if (user) {
+        await saveCheckoutAddress(user.id, {
+          label: 'Mi dirección',
+          recipientName: fullName,
+          street: address,
+          city,
+          region,
+          zipCode: zipCode || undefined,
+          phone,
+        });
+        console.log('[App] Checkout address saved successfully');
+      }
 
       // 4. Éxito
       setCurrentTransactionId(result.transactionId);
@@ -362,7 +582,8 @@ export default function App() {
         shippingInfo,
         totalAmount: cartTotal,
         storeSplits: {},
-        isTest: false
+        isTest: false,
+        userId: user?.id, // Asociar a usuario si está logueado
       });
 
       if (!result) {
@@ -405,6 +626,20 @@ export default function App() {
       const paymentStatus = await checkPaymentStatus(result.transactionId);
 
       if (paymentStatus.status === 'approved') {
+        // Guardar dirección del checkout si el usuario está logueado
+        if (user) {
+          await saveCheckoutAddress(user.id, {
+            label: 'Mi dirección',
+            recipientName: fullName,
+            street: address,
+            city,
+            region,
+            zipCode: zipCode || undefined,
+            phone,
+          });
+          console.log('[App] Checkout address saved successfully after real payment');
+        }
+
         setPaymentSuccess(true);
         clearCart();
         Alert.alert('✅ Pago Exitoso', '¡Tu compra fue procesada correctamente!');
@@ -535,7 +770,9 @@ export default function App() {
 
   const renderStoreDetail = () => {
     if (!selectedStore) return null;
-    const isSubscribed = subscriptions.includes(selectedStore.id);
+    // Limpiar el prefijo "real-" para comparar con suscripciones
+    const storeDomain = selectedStore.id.replace(/^real-/, '');
+    const isSubscribed = subscriptions.includes(storeDomain);
 
     return (
       <View className="flex-1 bg-white">
@@ -602,26 +839,39 @@ export default function App() {
                       : 'https://via.placeholder.com/400x400.png?text=Producto';
 
                   return (
-                    <TouchableOpacity
-                      key={product.id}
-                      onPress={() => goToProduct(product)}
-                      className="w-[48%] mb-4"
-                    >
-                      <View className="aspect-square rounded-xl bg-gray-100 overflow-hidden mb-3 relative">
-                        <Image
-                          source={{ uri: productImage }}
-                          className="w-full h-full"
-                          resizeMode="cover"
-                          onError={(e) => console.log('Error loading product image:', product.id)}
-                        />
-                      </View>
-                      <Text className="font-medium text-gray-900 text-sm" numberOfLines={2}>
-                        {product.name || 'Producto sin nombre'}
-                      </Text>
-                      <Text className="text-indigo-600 text-sm font-bold mt-1">
-                        {formatCLP(product.price || 0)}
-                      </Text>
-                    </TouchableOpacity>
+                    <View key={product.id} className="w-[48%] mb-4">
+                      <TouchableOpacity
+                        onPress={() => goToProduct(product)}
+                        activeOpacity={0.7}
+                      >
+                        <View className="aspect-square rounded-xl bg-gray-100 overflow-hidden mb-3 relative">
+                          <Image
+                            source={{ uri: productImage }}
+                            className="w-full h-full"
+                            resizeMode="cover"
+                            onError={(e) => console.log('Error loading product image:', product.id)}
+                          />
+                          {/* Botón agregar al carrito */}
+                          <TouchableOpacity
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              addToCart(product, selectedStore, product.variants?.[0] || null);
+                              setToast({ msg: 'Agregado al carrito', type: 'success' });
+                            }}
+                            className="absolute bottom-2 right-2 bg-indigo-600 p-2.5 rounded-full shadow-lg"
+                            activeOpacity={0.8}
+                          >
+                            <Plus size={20} color="white" strokeWidth={2.5} />
+                          </TouchableOpacity>
+                        </View>
+                        <Text className="font-medium text-gray-900 text-sm" numberOfLines={2}>
+                          {product.name || 'Producto sin nombre'}
+                        </Text>
+                        <Text className="text-indigo-600 text-sm font-bold mt-1">
+                          {formatCLP(product.price || 0)}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   );
                 })}
               </View>
@@ -1120,21 +1370,38 @@ export default function App() {
             ) : (
               <View className="gap-3">
                 {registeredConfigs.map((conf, idx) => (
-                  <View key={idx} className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex-row justify-between items-center">
-                     <View className="flex-row items-center gap-3">
-                        <View className="bg-slate-900 p-2 rounded-lg">
-                          <Globe size={20} color="#60A5FA" />
+                  <View key={idx} className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                     <View className="flex-row justify-between items-center mb-3">
+                        <View className="flex-row items-center gap-3 flex-1">
+                           <View className="bg-slate-900 p-2 rounded-lg">
+                             <Globe size={20} color="#60A5FA" />
+                           </View>
+                           <View className="flex-1">
+                              <Text className="font-bold text-sm text-white">{conf.domain}</Text>
+                              <Text className="text-xs text-slate-500">Token: •••••••••</Text>
+                           </View>
                         </View>
-                        <View>
-                           <Text className="font-bold text-sm text-white">{conf.domain}</Text>
-                           <Text className="text-xs text-slate-500">Token: •••••••••</Text>
-                        </View>
+                        <TouchableOpacity
+                          onPress={() => handleRemoveStore(conf.domain)}
+                          className="p-2 bg-red-900/30 rounded-lg"
+                        >
+                          <Trash2 size={18} color="#F87171" />
+                        </TouchableOpacity>
                      </View>
-                     <TouchableOpacity 
-                       onPress={() => handleRemoveStore(conf.domain)}
-                       className="p-2 bg-red-900/30 rounded-lg"
+
+                     {/* Notification Button */}
+                     <TouchableOpacity
+                       onPress={() => {
+                         setSelectedStoreForNotifications({
+                           id: conf.domain,
+                           name: conf.domain.replace('.myshopify.com', ''),
+                         });
+                         setView(ViewState.NOTIFICATIONS_ADMIN);
+                       }}
+                       className="bg-indigo-600 py-2.5 rounded-lg flex-row items-center justify-center gap-2"
                      >
-                       <Trash2 size={18} color="#F87171" />
+                       <Bell size={16} color="white" />
+                       <Text className="text-white font-semibold text-sm">Enviar Notificaciones</Text>
                      </TouchableOpacity>
                   </View>
                 ))}
@@ -1185,35 +1452,124 @@ export default function App() {
 
         <Text className="font-bold text-gray-900 mb-3">Quizás te guste</Text>
         <View className="flex-row flex-wrap justify-between">
-          {stores.flatMap(s => s.products).slice(0, 6).map(product => (
+          {stores.flatMap(s => s.products.map(p => ({ ...p, storeId: s.id, storeName: s.name }))).slice(0, 6).map(product => {
+            const productStore = stores.find(s => s.id === product.storeId);
+            return (
              <View key={`explore-${product.id}`} className="w-[48%] bg-white p-3 rounded-xl shadow-sm border border-gray-100 mb-4">
-                <View className="aspect-square rounded-lg bg-gray-100 overflow-hidden mb-2">
-                  <Image 
-                    source={{ uri: product.images && product.images.length > 0 ? product.images[0] : `https://picsum.photos/seed/${product.imagePrompt}/300` }} 
-                    className="w-full h-full"
-                  />
-                </View>
-                <Text className="text-sm font-bold text-gray-900" numberOfLines={1}>{product.name}</Text>
-                <Text className="text-xs text-gray-500">{formatCLP(product.price)}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (productStore) {
+                      setSelectedStore(productStore);
+                      goToProduct(product);
+                    }
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View className="aspect-square rounded-lg bg-gray-100 overflow-hidden mb-2 relative">
+                    <Image
+                      source={{ uri: product.images && product.images.length > 0 ? product.images[0] : `https://picsum.photos/seed/${product.imagePrompt}/300` }}
+                      className="w-full h-full"
+                    />
+                    {/* Botón agregar al carrito */}
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        if (productStore) {
+                          addToCart(product, productStore, product.variants?.[0] || null);
+                          setToast({ msg: 'Agregado al carrito', type: 'success' });
+                        }
+                      }}
+                      className="absolute bottom-2 right-2 bg-indigo-600 p-2 rounded-full shadow-lg"
+                      activeOpacity={0.8}
+                    >
+                      <Plus size={18} color="white" strokeWidth={2.5} />
+                    </TouchableOpacity>
+                  </View>
+                  <Text className="text-sm font-bold text-gray-900" numberOfLines={1}>{product.name}</Text>
+                  <Text className="text-xs text-gray-500">{formatCLP(product.price)}</Text>
+                </TouchableOpacity>
              </View>
-          ))}
+            );
+          })}
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 
-  const renderProfile = () => (
+  const renderProfile = () => {
+    // Si no está autenticado, mostrar pantalla de bienvenida
+    if (!isAuthenticated) {
+      return (
+        <SafeAreaView className="flex-1 bg-gray-50">
+          <ScrollView className="p-4">
+            <Text className="text-3xl font-bold mb-4 mt-4">Mi Perfil</Text>
+
+            <View className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6 items-center">
+              <View className="w-20 h-20 bg-gray-200 rounded-full items-center justify-center mb-4">
+                <User size={40} color="#9CA3AF" />
+              </View>
+              <Text className="font-bold text-lg mb-2">¡Bienvenido a ShopUnite!</Text>
+              <Text className="text-sm text-gray-500 text-center mb-6">
+                Inicia sesión para acceder a tu perfil, pedidos y más
+              </Text>
+
+              <TouchableOpacity
+                onPress={() => setView(ViewState.LOGIN)}
+                className="w-full bg-blue-600 py-3 rounded-xl mb-3"
+              >
+                <Text className="text-white text-center font-semibold">Iniciar Sesión</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setView(ViewState.SIGNUP)}
+                className="w-full border-2 border-blue-600 py-3 rounded-xl"
+              >
+                <Text className="text-blue-600 text-center font-semibold">Crear Cuenta</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View className="gap-2 mb-8">
+              <Text className="font-bold text-gray-900 mb-2 px-1">Explora sin cuenta</Text>
+              {['Explorar Tiendas', 'Buscar Productos', 'Ayuda'].map(item => (
+                <TouchableOpacity key={item} className="bg-white p-4 rounded-xl flex-row justify-between items-center shadow-sm border border-gray-100">
+                  <Text className="font-medium text-gray-700">{item}</Text>
+                  <ChevronLeft size={16} className="rotate-180" color="#9CA3AF" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      );
+    }
+
+    // Usuario autenticado - mostrar perfil completo
+    const getUserInitials = () => {
+      if (profile?.full_name) {
+        const names = profile.full_name.split(' ');
+        return names.length > 1
+          ? `${names[0][0]}${names[1][0]}`.toUpperCase()
+          : names[0].substring(0, 2).toUpperCase();
+      }
+      return profile?.email?.substring(0, 2).toUpperCase() || 'U';
+    };
+
+    return (
     <SafeAreaView className="flex-1 bg-gray-50">
       <ScrollView className="p-4">
         <Text className="text-3xl font-bold mb-8 mt-4">Mi Perfil</Text>
-        
+
         <View className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex-row items-center gap-4 mb-6">
           <View className="w-16 h-16 bg-indigo-100 rounded-full items-center justify-center">
-            <Text className="text-indigo-600 font-bold text-xl">JP</Text>
+            <Text className="text-indigo-600 font-bold text-xl">{getUserInitials()}</Text>
           </View>
-          <View>
-            <Text className="font-bold text-lg">Usuario Demo</Text>
-            <Text className="text-sm text-gray-500">usuario@shopunite.com</Text>
+          <View className="flex-1">
+            <Text className="font-bold text-lg">{profile?.full_name || 'Usuario'}</Text>
+            <Text className="text-sm text-gray-500">{profile?.email}</Text>
+            {profile && profile.total_orders > 0 && (
+              <Text className="text-xs text-green-600 mt-1">
+                {profile.total_orders} pedidos • {formatCLP(profile.total_spent)}
+              </Text>
+            )}
           </View>
         </View>
 
@@ -1224,7 +1580,7 @@ export default function App() {
            </View>
         ) : (
           <View className="gap-3 mb-8">
-            {stores.filter(s => subscriptions.includes(s.id)).map(store => (
+            {stores.filter(s => subscriptions.includes(s.id.replace(/^real-/, ''))).map(store => (
               <View key={`sub-${store.id}`} className="bg-white p-3 rounded-xl flex-row items-center justify-between shadow-sm border border-gray-100">
                 <View className="flex-row items-center gap-3">
                   <View className="w-10 h-10 rounded-full items-center justify-center bg-gray-800">
@@ -1250,7 +1606,23 @@ export default function App() {
         )}
 
         <View className="gap-2 mb-8">
-          {['Mis Pedidos', 'Direcciones', 'Métodos de Pago', 'Ayuda'].map(item => (
+          <TouchableOpacity
+            onPress={() => setView(ViewState.ORDERS)}
+            className="bg-white p-4 rounded-xl flex-row justify-between items-center shadow-sm border border-gray-100"
+          >
+            <Text className="font-medium text-gray-700">Mis Pedidos</Text>
+            <ChevronLeft size={16} className="rotate-180" color="#9CA3AF" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setView(ViewState.ADDRESSES)}
+            className="bg-white p-4 rounded-xl flex-row justify-between items-center shadow-sm border border-gray-100"
+          >
+            <Text className="font-medium text-gray-700">Direcciones</Text>
+            <ChevronLeft size={16} className="rotate-180" color="#9CA3AF" />
+          </TouchableOpacity>
+
+          {['Métodos de Pago', 'Ayuda'].map(item => (
             <TouchableOpacity key={item} className="bg-white p-4 rounded-xl flex-row justify-between items-center shadow-sm border border-gray-100">
               <Text className="font-medium text-gray-700">{item}</Text>
               <ChevronLeft size={16} className="rotate-180" color="#9CA3AF" />
@@ -1258,8 +1630,21 @@ export default function App() {
           ))}
         </View>
 
-        <View className="mt-8 mb-10">
-           <TouchableOpacity 
+        {/* Logout Button (for authenticated users) */}
+        <TouchableOpacity
+          onPress={async () => {
+            await signOut();
+            setToast({ msg: 'Sesión cerrada correctamente', type: 'success' });
+            setView(ViewState.HOME);
+          }}
+          className="bg-red-50 p-4 rounded-xl flex-row items-center justify-center gap-2 mb-4"
+        >
+          <LogOut size={18} color="#DC2626" />
+          <Text className="font-bold text-sm text-red-600">Cerrar Sesión</Text>
+        </TouchableOpacity>
+
+        <View className="mt-4 mb-10">
+           <TouchableOpacity
               onPress={() => setView(ViewState.ADMIN_DASHBOARD)}
               className="w-full border-2 border-dashed border-gray-300 p-4 rounded-xl flex-row items-center justify-center gap-2"
            >
@@ -1270,7 +1655,8 @@ export default function App() {
         </View>
       </ScrollView>
     </SafeAreaView>
-  );
+    );
+  };
 
   if (loading) {
     return (
@@ -1305,10 +1691,45 @@ export default function App() {
             {view === ViewState.SEARCH && renderSearch()}
             {view === ViewState.CHECKOUT && renderCheckout()}
             {view === ViewState.ADMIN_DASHBOARD && renderAdminDashboard()}
+            {view === ViewState.LOGIN && <LoginScreen onNavigate={setView} />}
+            {view === ViewState.SIGNUP && <SignUpScreen onNavigate={setView} />}
+            {view === ViewState.ORDERS && (
+              <OrdersScreen
+                onBack={() => setView(ViewState.PROFILE)}
+                onSelectOrder={(order) => {
+                  setSelectedOrder(order);
+                  setView(ViewState.ORDER_DETAIL);
+                }}
+              />
+            )}
+            {view === ViewState.ORDER_DETAIL && selectedOrder && (
+              <OrderDetailScreen
+                order={selectedOrder}
+                onBack={() => setView(ViewState.ORDERS)}
+                onRepeatOrder={(items) => {
+                  setCart(items);
+                  setView(ViewState.CART);
+                  Alert.alert('¡Listo!', `${items.length} productos agregados al carrito`);
+                }}
+              />
+            )}
+            {view === ViewState.ADDRESSES && user && (
+              <AddressesScreen
+                userId={user.id}
+                onBack={() => setView(ViewState.PROFILE)}
+              />
+            )}
+            {view === ViewState.NOTIFICATIONS_ADMIN && selectedStoreForNotifications && (
+              <NotificationsAdminScreen
+                storeId={selectedStoreForNotifications.id}
+                storeName={selectedStoreForNotifications.name}
+                onBack={goBack}
+              />
+            )}
           </View>
 
           {/* Bottom Navigation */}
-          {![ViewState.PRODUCT_DETAIL, ViewState.CHECKOUT, ViewState.ADMIN_DASHBOARD].includes(view) && (
+          {![ViewState.PRODUCT_DETAIL, ViewState.CHECKOUT, ViewState.ADMIN_DASHBOARD, ViewState.LOGIN, ViewState.SIGNUP, ViewState.ORDERS, ViewState.ORDER_DETAIL, ViewState.ADDRESSES, ViewState.NOTIFICATIONS_ADMIN].includes(view) && (
              <BottomNav currentView={view} onChangeView={setView} cartCount={cartCount} />
           )}
       </View>
@@ -1316,3 +1737,12 @@ export default function App() {
   );
 }
 
+// --- App Wrapper with AuthProvider ---
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}

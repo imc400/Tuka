@@ -299,11 +299,11 @@ $$;
 -- ÍNDICES PARA BÚSQUEDA Y FILTROS
 -- =====================================================
 
+-- Nota: Requiere extensión pg_trgm (crearla ANTES de usar)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- Para búsqueda de usuarios por nombre o email (admin)
 CREATE INDEX IF NOT EXISTS idx_user_profiles_full_name_trgm ON public.user_profiles USING gin(full_name gin_trgm_ops);
-
--- Nota: Requiere extensión pg_trgm
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- Para filtros de fecha en analytics
 CREATE INDEX IF NOT EXISTS idx_transactions_created_at_brin ON public.transactions USING brin(created_at);
