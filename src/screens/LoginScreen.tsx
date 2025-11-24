@@ -21,9 +21,11 @@ import {
   Platform,
   ScrollView,
   Alert,
+  Image,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { ViewState } from '../types';
+import { signInWithGoogle } from '../services/authService';
 
 interface LoginScreenProps {
   onNavigate: (state: ViewState) => void;
@@ -35,6 +37,7 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   // =====================================================
   // VALIDATION
@@ -90,6 +93,28 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
   }
 
   // =====================================================
+  // GOOGLE SIGN IN
+  // =====================================================
+
+  async function handleGoogleSignIn() {
+    setIsGoogleLoading(true);
+    try {
+      const result = await signInWithGoogle();
+
+      if (!result.success) {
+        Alert.alert('Error', result.error || 'No se pudo iniciar sesión con Google');
+      } else {
+        // Login exitoso → el AuthContext detectará el cambio de sesión automáticamente
+        console.log('✅ Google Sign In exitoso');
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Error inesperado con Google Sign In');
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  }
+
+  // =====================================================
   // RENDER
   // =====================================================
 
@@ -110,6 +135,40 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
           <Text className="text-lg text-gray-600">
             Inicia sesión para continuar
           </Text>
+        </View>
+
+        {/* GOOGLE SIGN IN BUTTON */}
+        <TouchableOpacity
+          onPress={handleGoogleSignIn}
+          disabled={isLoading || isGoogleLoading}
+          className="flex-row items-center justify-center bg-white border border-gray-300 py-3 rounded-xl mb-6 shadow-sm"
+          style={{
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.1,
+            shadowRadius: 2,
+            elevation: 2,
+          }}
+        >
+          {isGoogleLoading ? (
+            <ActivityIndicator size="small" color="#4285F4" />
+          ) : (
+            <>
+              <View className="w-5 h-5 mr-3">
+                <Text style={{ fontSize: 20 }}>G</Text>
+              </View>
+              <Text className="font-semibold text-gray-700 text-base">
+                Continuar con Google
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        {/* DIVIDER */}
+        <View className="flex-row items-center my-6">
+          <View className="flex-1 h-px bg-gray-300" />
+          <Text className="mx-4 text-gray-500 text-sm">o continúa con email</Text>
+          <View className="flex-1 h-px bg-gray-300" />
         </View>
 
         {/* FORM */}

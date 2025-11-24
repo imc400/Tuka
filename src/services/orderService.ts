@@ -20,11 +20,19 @@ export interface ShippingInfo {
   email: string;
 }
 
+export interface ShippingCost {
+  rate_id: string;
+  title: string;
+  price: number;
+  code: string;
+}
+
 export interface TransactionData {
   cartItems: CartItem[];
   shippingInfo: ShippingInfo;
   totalAmount: number;
   storeSplits: Record<string, number>; // { domain: amount }
+  shippingCosts: Record<string, ShippingCost>; // { domain: ShippingCost }
   isTest?: boolean;
   userId?: string; // UUID del usuario autenticado (opcional para guest checkout)
 }
@@ -89,6 +97,7 @@ export async function createPendingTransaction(
         },
         cart_items: data.cartItems,
         store_splits: storeSplits,
+        shipping_costs: data.shippingCosts || {}, // Costos de envío seleccionados
         is_test: data.isTest || false,
         user_id: data.userId || null, // Asociar a usuario si está autenticado
       })

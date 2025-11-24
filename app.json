@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "extra": {
-      "eas": {
-        "projectId": "app-marketplace-fb841"
-      }
-    },
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -22,15 +17,16 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shopunite.marketplace",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.shopunite.marketplace",
-      "googleServicesFile": "./google-services.json"
+      "package": "com.shopunite.marketplace"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -46,7 +42,13 @@
         }
       ]
     ],
-    "scheme": "shopunite"
+    "scheme": "shopunite",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9bf5b6eb-e224-4a92-b1a9-bc99265c4863"
+      }
+    },
+    "owner": "nachodev2025"
   }
 }
-

@@ -253,6 +253,9 @@ async function createShopifyOrders(transactionId: number, supabaseClient: any) {
           }
         }
 
+        // Obtener costo de envío seleccionado para esta tienda
+        const shippingCost = transaction.shipping_costs?.[store.domain];
+
         // Crear Draft Order en Shopify
         const draftOrder: any = {
           draft_order: {
@@ -277,6 +280,14 @@ async function createShopifyOrders(transactionId: number, supabaseClient: any) {
               country: 'Chile',
               country_code: 'CL',
             },
+            // Agregar línea de envío si existe
+            ...(shippingCost && {
+              shipping_line: {
+                title: shippingCost.title,
+                price: shippingCost.price.toString(),
+                code: shippingCost.code,
+              },
+            }),
             note: `Orden de ShopUnite - Transacción #${transactionId}`,
             tags: 'shopunite, marketplace',
             financial_status: 'paid', // Marcar como pagada

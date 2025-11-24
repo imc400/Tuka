@@ -28,6 +28,7 @@ import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import { formatCLP } from './src/utils/currency';
 import { ImageGallery } from './src/components/ImageGallery';
 import { VariantSelector } from './src/components/VariantSelector';
+import { ShippingSection } from './src/components/ShippingSection';
 import {
   createPendingTransaction,
   updateTransactionStatus,
@@ -35,6 +36,10 @@ import {
   validateShippingInfo,
   type ShippingInfo
 } from './src/services/orderService';
+import {
+  validateShippingSelection,
+  type SelectedShippingRates
+} from './src/services/shippingService';
 import {
   createMercadoPagoPreference,
   openMercadoPagoCheckout,
@@ -51,6 +56,8 @@ import { getDefaultAddress, saveCheckoutAddress } from './src/services/addressSe
 import AddressesScreen from './src/screens/AddressesScreen';
 import NotificationsAdminScreen from './src/screens/NotificationsAdminScreen';
 import * as cartService from './src/services/cartService';
+import { WelcomeFlow } from './src/components/WelcomeFlow';
+import { SplashScreen } from './src/components/SplashScreen';
 import {
   getUserSubscriptions,
   subscribeToStore,
@@ -60,6 +67,7 @@ import {
   configureNotifications,
   registerForPushNotifications
 } from './src/services/pushNotificationService';
+import { configureGoogleSignIn } from './src/services/authService';
 
 // --- Styled Components (NativeWind) ---
 // In NativeWind 4, we can use className directly, but sometimes styled() is useful. 
@@ -162,6 +170,10 @@ function AppContent() {
   const [tempRegion, setTempRegion] = useState('');
   const [tempComuna, setTempComuna] = useState('');
 
+  // Shipping rates state
+  const [selectedShippingRates, setSelectedShippingRates] = useState<SelectedShippingRates>({});
+  const [shippingTotal, setShippingTotal] = useState(0);
+
   // Handle region change
   const handleRegionChange = (regionCode: string) => {
     setRegion(regionCode);
@@ -179,6 +191,15 @@ function AppContent() {
     loadMarketplace();
     // Configurar notificaciones al iniciar la app
     configureNotifications();
+
+    // Configurar Google Sign In
+    const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    if (webClientId) {
+      configureGoogleSignIn(webClientId);
+      console.log('✅ [App] Google Sign In configurado');
+    } else {
+      console.warn('⚠️  [App] EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID no está configurado en .env.local');
+    }
   }, []);
 
   // Cargar suscripciones del usuario cuando inicie sesión
@@ -483,6 +504,12 @@ function AppContent() {
     }
   };
 
+  // Handler para cuando se calculan/cambian los envíos
+  const handleShippingCalculated = (rates: SelectedShippingRates, total: number) => {
+    setSelectedShippingRates(rates);
+    setShippingTotal(total);
+  };
+
   // Función de pago de prueba (sin MercadoPago)
   const handleTestPayment = async () => {
     // Validar formulario
@@ -502,15 +529,29 @@ function AppContent() {
       return;
     }
 
+    // Validar que se hayan seleccionado envíos
+    const shippingValidation = validateShippingSelection(cart, selectedShippingRates);
+    if (!shippingValidation.valid) {
+      Alert.alert(
+        'Selecciona métodos de envío',
+        `Falta seleccionar envío para: ${shippingValidation.missingStores?.join(', ')}`
+      );
+      return;
+    }
+
     setIsProcessingPayment(true);
 
     try {
+      // Total incluye productos + envíos
+      const grandTotal = cartTotal + shippingTotal;
+
       // 1. Crear transacción pendiente
       const result = await createPendingTransaction({
         cartItems: cart,
         shippingInfo,
-        totalAmount: cartTotal,
+        totalAmount: grandTotal,
         storeSplits: {},
+        shippingCosts: selectedShippingRates,
         isTest: true,
         userId: user?.id, // Asociar a usuario si está logueado
       });
@@ -576,15 +617,29 @@ function AppContent() {
       return;
     }
 
+    // Validar que se hayan seleccionado envíos
+    const shippingValidation = validateShippingSelection(cart, selectedShippingRates);
+    if (!shippingValidation.valid) {
+      Alert.alert(
+        'Selecciona métodos de envío',
+        `Falta seleccionar envío para: ${shippingValidation.missingStores?.join(', ')}`
+      );
+      return;
+    }
+
     setIsProcessingPayment(true);
 
     try {
+      // Total incluye productos + envíos
+      const grandTotal = cartTotal + shippingTotal;
+
       // 1. Crear transacción pendiente
       const result = await createPendingTransaction({
         cartItems: cart,
         shippingInfo,
-        totalAmount: cartTotal,
+        totalAmount: grandTotal,
         storeSplits: {},
+        shippingCosts: selectedShippingRates,
         isTest: false,
         userId: user?.id, // Asociar a usuario si está logueado
       });
@@ -1226,7 +1281,7 @@ function AppContent() {
         </View>
       ) : (
         <View className="flex-1">
-          <ScrollView className="p-4 mb-20">
+          <ScrollView className="p-4" contentContainerStyle={{ paddingBottom: 220 }}>
             {cart.map((item) => {
               const itemPrice = item.selectedVariant?.price || item.price;
               const cartKey = item.selectedVariant ? `${item.id}-${item.selectedVariant.id}` : item.id;
@@ -1250,9 +1305,9 @@ function AppContent() {
                    <View className="flex-row justify-between items-end mt-2">
                       <Text className="font-bold text-indigo-600">{formatCLP(itemPrice * item.quantity)}</Text>
                       <View className="flex-row items-center gap-3 bg-gray-50 rounded-lg px-2 py-1">
-                        <TouchableOpacity onPress={() => updateQuantity(item.id, -1)}><Minus size={14} color="black" /></TouchableOpacity>
+                        <TouchableOpacity onPress={() => updateQuantity(item.id, -1, item.selectedVariant?.id)}><Minus size={14} color="black" /></TouchableOpacity>
                         <Text className="text-xs font-bold w-4 text-center">{item.quantity}</Text>
-                        <TouchableOpacity onPress={() => updateQuantity(item.id, 1)}><Plus size={14} color="black" /></TouchableOpacity>
+                        <TouchableOpacity onPress={() => updateQuantity(item.id, 1, item.selectedVariant?.id)}><Plus size={14} color="black" /></TouchableOpacity>
                       </View>
                    </View>
                  </View>
@@ -1320,9 +1375,15 @@ function AppContent() {
               <Text className="text-gray-600 text-sm">Productos ({cartCount})</Text>
               <Text className="text-gray-600 text-sm">{formatCLP(cartTotal)}</Text>
             </View>
+            {shippingTotal > 0 && (
+              <View className="flex-row justify-between mb-1">
+                <Text className="text-gray-600 text-sm">Envíos</Text>
+                <Text className="text-gray-600 text-sm">{formatCLP(shippingTotal)}</Text>
+              </View>
+            )}
             <View className="flex-row justify-between pt-2 border-t border-gray-100 mt-2">
               <Text className="font-bold text-gray-900 text-sm">Total a Pagar</Text>
-              <Text className="font-bold text-gray-900 text-sm">{formatCLP(cartTotal)}</Text>
+              <Text className="font-bold text-gray-900 text-sm">{formatCLP(cartTotal + shippingTotal)}</Text>
             </View>
           </View>
 
@@ -1470,6 +1531,19 @@ function AppContent() {
             </View>
           </View>
 
+          {/* Shipping Methods Section */}
+          <ShippingSection
+            cartItems={cart}
+            shippingAddress={{
+              address: address,
+              city: city,
+              region: region,
+              zipCode: zipCode,
+            }}
+            onShippingCalculated={handleShippingCalculated}
+            autoCalculate={true}
+          />
+
           {/* Payment Info */}
           <View className="bg-blue-50 border border-blue-200 p-4 rounded-xl mb-4">
             <View className="flex-row items-center gap-2 mb-2">
@@ -1484,8 +1558,10 @@ function AppContent() {
           {/* Test Payment Button */}
           <TouchableOpacity
             onPress={handleTestPayment}
-            disabled={isProcessingPayment}
-            className="w-full bg-orange-500 py-4 rounded-xl flex-row items-center justify-center gap-2 mb-3"
+            disabled={isProcessingPayment || shippingTotal === 0}
+            className={`w-full py-4 rounded-xl flex-row items-center justify-center gap-2 mb-3 ${
+              isProcessingPayment || shippingTotal === 0 ? 'bg-gray-400' : 'bg-orange-500'
+            }`}
           >
             {isProcessingPayment ? (
               <ActivityIndicator color="white" />
@@ -1500,14 +1576,16 @@ function AppContent() {
           {/* Real Payment Button */}
           <TouchableOpacity
             onPress={handleRealPayment}
-            disabled={isProcessingPayment}
-            className="w-full bg-indigo-600 py-4 rounded-xl flex-row items-center justify-center gap-2 mb-10"
+            disabled={isProcessingPayment || shippingTotal === 0}
+            className={`w-full py-4 rounded-xl flex-row items-center justify-center gap-2 mb-10 ${
+              isProcessingPayment || shippingTotal === 0 ? 'bg-gray-400' : 'bg-indigo-600'
+            }`}
           >
             {isProcessingPayment ? (
               <ActivityIndicator color="white" />
             ) : (
               <>
-               <Text className="text-white font-bold text-lg">Pagar {formatCLP(cartTotal)}</Text>
+               <Text className="text-white font-bold text-lg">Pagar {formatCLP(cartTotal + shippingTotal)}</Text>
                <ArrowRight size={20} color="white" />
               </>
             )}
@@ -1886,15 +1964,21 @@ function AppContent() {
     );
   };
 
-  if (loading) {
-    return (
-      <View className="flex-1 items-center justify-center bg-white">
-        <ActivityIndicator size="large" color="#4F46E5" />
-        <Text className="text-gray-500 font-medium mt-4">Cargando Marketplace...</Text>
-      </View>
-    );
+  // =====================================================
+  // AUTH FLOW: Mostrar WelcomeFlow si no está autenticado
+  // =====================================================
+
+  // Loading: Mostrar SplashScreen
+  if (authLoading || loading) {
+    return <SplashScreen />;
   }
 
+  // No autenticado: Mostrar WelcomeFlow
+  if (!isAuthenticated) {
+    return <WelcomeFlow />;
+  }
+
+  // Autenticado: Mostrar Marketplace
   return (
     <SafeAreaView className="flex-1 bg-white">
       <ExpoStatusBar style="dark" />

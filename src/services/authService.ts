@@ -12,6 +12,12 @@
 
 import { supabase } from '../lib/supabase';
 import type { User, Session, AuthError } from '@supabase/supabase-js';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import * as WebBrowser from 'expo-web-browser';
+import { makeRedirectUri } from 'expo-auth-session';
+
+// Necesario para Expo Web Browser
+WebBrowser.maybeCompleteAuthSession();
 
 // =====================================================
 // TYPES
@@ -241,6 +247,9 @@ export async function signIn(data: SignInData): Promise<AuthResponse> {
 export async function signOut(): Promise<{ success: boolean; error?: string }> {
   try {
     console.log('🚪 [AuthService] Cerrando sesión');
+
+    // Cerrar sesión de Google si está activa
+    await signOutGoogle();
 
     const { error } = await supabase.auth.signOut();
 
@@ -493,5 +502,223 @@ export async function updatePassword(
       success: false,
       error: error.message || 'Error al actualizar contraseña',
     };
+  }
+}
+
+// =====================================================
+// SOCIAL AUTH: GOOGLE
+// =====================================================
+
+/**
+ * Configurar Google Sign In
+ * IMPORTANTE: Debes llamar esto en App.tsx antes de usar signInWithGoogle()
+ *
+ * Para obtener los Client IDs:
+ * 1. Ir a Google Cloud Console: https://console.cloud.google.com/
+ * 2. Crear proyecto o seleccionar existente
+ * 3. APIs & Services → Credentials → Create OAuth 2.0 Client ID
+ * 4. Configurar para iOS, Android, y Web
+ * 5. Copiar los Client IDs aquí
+ */
+export function configureGoogleSignIn(webClientId: string) {
+  try {
+    GoogleSignin.configure({
+      webClientId, // Client ID de tipo "Web" en Google Cloud Console
+      offlineAccess: true, // Para obtener refresh token
+    });
+    console.log('✅ [AuthService] Google Sign In configurado');
+  } catch (error) {
+    console.error('❌ [AuthService] Error configurando Google Sign In:', error);
+  }
+}
+
+/**
+ * Sign In con Google usando OAuth nativo
+ *
+ * Flujo:
+ * 1. Usuario hace tap en botón de Google
+ * 2. Se abre Google Sign In nativo
+ * 3. Usuario selecciona cuenta y autoriza
+ * 4. Obtenemos idToken
+ * 5. Pasamos idToken a Supabase
+ * 6. Supabase crea/actualiza usuario
+ * 7. Creamos/actualizamos perfil si es necesario
+ */
+export async function signInWithGoogle(): Promise<AuthResponse> {
+  try {
+    console.log('🔐 [AuthService] Iniciando Google Sign In...');
+
+    // 1. Verificar que Play Services esté disponible (Android)
+    await GoogleSignin.hasPlayServices({
+      showPlayServicesUpdateDialog: true,
+    });
+
+    // 2. Hacer Sign In con Google
+    const userInfo = await GoogleSignin.signIn();
+    console.log('✅ [AuthService] Google Sign In exitoso:', userInfo.data?.user.email);
+
+    // 3. Obtener idToken
+    const idToken = userInfo.data?.idToken;
+    if (!idToken) {
+      return {
+        success: false,
+        error: 'No se pudo obtener token de Google',
+      };
+    }
+
+    // 4. Autenticar con Supabase usando el idToken de Google
+    const { data: authData, error: authError } = await supabase.auth.signInWithIdToken({
+      provider: 'google',
+      token: idToken,
+    });
+
+    if (authError) {
+      console.error('❌ [AuthService] Error en signInWithIdToken:', authError);
+      return {
+        success: false,
+        error: authError.message || 'Error autenticando con Google',
+      };
+    }
+
+    if (!authData.user) {
+      return {
+        success: false,
+        error: 'No se pudo obtener datos del usuario',
+      };
+    }
+
+    console.log('✅ [AuthService] Usuario autenticado con Supabase:', authData.user.id);
+
+    // 5. Asegurar que existe perfil (crear si es primera vez)
+    await ensureUserProfile(authData.user, {
+      full_name: userInfo.data?.user.name || null,
+      avatar_url: userInfo.data?.user.photo || null,
+    });
+
+    // 6. Obtener perfil completo
+    const profile = await getUserProfile(authData.user.id);
+
+    // 7. Actualizar last_active_at
+    await updateLastActive(authData.user.id);
+
+    return {
+      success: true,
+      user: authData.user,
+      profile,
+      session: authData.session,
+    };
+  } catch (error: any) {
+    console.error('❌ [AuthService] Error en signInWithGoogle:', error);
+
+    // Errores específicos de Google Sign In
+    if (error.code === 'SIGN_IN_CANCELLED') {
+      return {
+        success: false,
+        error: 'Inicio de sesión cancelado',
+      };
+    }
+
+    if (error.code === 'IN_PROGRESS') {
+      return {
+        success: false,
+        error: 'Ya hay un inicio de sesión en progreso',
+      };
+    }
+
+    if (error.code === 'PLAY_SERVICES_NOT_AVAILABLE') {
+      return {
+        success: false,
+        error: 'Google Play Services no disponible',
+      };
+    }
+
+    return {
+      success: false,
+      error: error.message || 'Error con Google Sign In',
+    };
+  }
+}
+
+/**
+ * Sign Out de Google
+ * Importante llamar esto al cerrar sesión para limpiar el estado de Google
+ */
+export async function signOutGoogle(): Promise<void> {
+  try {
+    const isSignedIn = await GoogleSignin.isSignedIn();
+    if (isSignedIn) {
+      await GoogleSignin.signOut();
+      console.log('✅ [AuthService] Google Sign Out exitoso');
+    }
+  } catch (error) {
+    console.error('⚠️  [AuthService] Error en Google Sign Out:', error);
+    // Non-critical, no afecta el flujo
+  }
+}
+
+// =====================================================
+// HELPER: ENSURE USER PROFILE
+// =====================================================
+
+/**
+ * Asegurar que el usuario tenga perfil en user_profiles
+ * Si no existe, lo crea. Si existe, lo actualiza (opcional)
+ *
+ * Usado para social login (Google, Apple, etc.)
+ */
+async function ensureUserProfile(
+  user: User,
+  additionalData?: {
+    full_name?: string | null;
+    phone?: string | null;
+    avatar_url?: string | null;
+  }
+): Promise<void> {
+  try {
+    console.log('👤 [AuthService] Verificando perfil para:', user.id);
+
+    // Verificar si ya existe perfil
+    const { data: existing, error: fetchError } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('❌ [AuthService] Error verificando perfil:', fetchError);
+      return;
+    }
+
+    if (!existing) {
+      // Crear perfil nuevo
+      console.log('📝 [AuthService] Creando nuevo perfil para usuario OAuth');
+
+      const { error: insertError } = await supabase
+        .from('user_profiles')
+        .insert({
+          id: user.id,
+          full_name: additionalData?.full_name || user.user_metadata?.full_name || null,
+          phone: additionalData?.phone || null,
+          avatar_url: additionalData?.avatar_url || user.user_metadata?.avatar_url || null,
+        });
+
+      if (insertError) {
+        console.error('❌ [AuthService] Error creando perfil:', insertError);
+      } else {
+        console.log('✅ [AuthService] Perfil creado exitosamente');
+      }
+    } else {
+      console.log('✅ [AuthService] Perfil ya existe');
+
+      // Opcionalmente actualizar avatar si viene de Google
+      if (additionalData?.avatar_url) {
+        await supabase
+          .from('user_profiles')
+          .update({ avatar_url: additionalData.avatar_url })
+          .eq('id', user.id);
+      }
+    }
+  } catch (error) {
+    console.error('❌ [AuthService] Error inesperado en ensureUserProfile:', error);
   }
 }

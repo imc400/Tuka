@@ -44,3 +44,4 @@ coverage/
 *.pem
 *.key
 credentials.json
+/ios
