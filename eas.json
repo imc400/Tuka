@@ -16,9 +16,19 @@
         "resourceClass": "medium"
       }
     },
+    "development-device": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "production",
+      "ios": {
+        "simulator": false,
+        "resourceClass": "m-medium"
+      }
+    },
     "preview": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "production",
       "ios": {
         "simulator": false,
         "resourceClass": "m-medium"
@@ -30,6 +40,7 @@
     },
     "testflight": {
       "distribution": "store",
+      "environment": "production",
       "ios": {
         "simulator": false,
         "resourceClass": "m-medium"

@@ -40,6 +40,12 @@
           "color": "#6366F1",
           "sounds": []
         }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.356945634678-9drgid5o0fr3pvj7knbi79qa8a6csmou"
+        }
       ]
     ],
     "scheme": "shopunite",

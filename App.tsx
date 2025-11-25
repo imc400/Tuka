@@ -194,8 +194,9 @@ function AppContent() {
 
     // Configurar Google Sign In
     const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
     if (webClientId) {
-      configureGoogleSignIn(webClientId);
+      configureGoogleSignIn(webClientId, iosClientId);
       console.log('✅ [App] Google Sign In configurado');
     } else {
       console.warn('⚠️  [App] EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID no está configurado en .env.local');

@@ -520,10 +520,11 @@ export async function updatePassword(
  * 4. Configurar para iOS, Android, y Web
  * 5. Copiar los Client IDs aquí
  */
-export function configureGoogleSignIn(webClientId: string) {
+export function configureGoogleSignIn(webClientId: string, iosClientId?: string) {
   try {
     GoogleSignin.configure({
       webClientId, // Client ID de tipo "Web" en Google Cloud Console
+      iosClientId, // Client ID de tipo "iOS" en Google Cloud Console
       offlineAccess: true, // Para obtener refresh token
     });
     console.log('✅ [AuthService] Google Sign In configurado');
