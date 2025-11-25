@@ -15,6 +15,7 @@ import type { User, Session, AuthError } from '@supabase/supabase-js';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
+import * as Crypto from 'expo-crypto';
 
 // Necesario para Expo Web Browser
 WebBrowser.maybeCompleteAuthSession();
@@ -554,7 +555,8 @@ export async function signInWithGoogle(): Promise<AuthResponse> {
       showPlayServicesUpdateDialog: true,
     });
 
-    // 2. Hacer Sign In con Google
+    // 2. Hacer Sign In con Google (sin nonce para iOS - el SDK no lo soporta bien)
+    // En iOS, el nonce debe manejarse diferente o simplemente no usarse
     const userInfo = await GoogleSignin.signIn();
     console.log('✅ [AuthService] Google Sign In exitoso:', userInfo.data?.user.email);
 
@@ -567,11 +569,21 @@ export async function signInWithGoogle(): Promise<AuthResponse> {
       };
     }
 
+    console.log('🔑 [AuthService] idToken obtenido, autenticando con Supabase...');
+
     // 4. Autenticar con Supabase usando el idToken de Google
+    // Nota: Para iOS, el token de Google no incluye nonce por defecto
+    // Supabase debe estar configurado para aceptar tokens sin nonce
+    console.log('📤 [AuthService] Enviando token a Supabase (sin nonce)...');
     const { data: authData, error: authError } = await supabase.auth.signInWithIdToken({
       provider: 'google',
       token: idToken,
     });
+
+    // Si falla por nonce, intentar obtener más info
+    if (authError) {
+      console.log('🔍 [AuthService] Error details:', JSON.stringify(authError, null, 2));
+    }
 
     if (authError) {
       console.error('❌ [AuthService] Error en signInWithIdToken:', authError);

@@ -112,9 +112,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // HELPER: Cargar perfil del usuario
   // =====================================================
 
-  async function loadUserProfile(userId: string) {
+  async function loadUserProfile(userId: string, retryCount = 0) {
     try {
-      console.log('👤 [AuthContext] Cargando perfil:', userId);
+      console.log('👤 [AuthContext] Cargando perfil:', userId, retryCount > 0 ? `(intento ${retryCount + 1})` : '');
 
       const userProfile = await authService.getUserProfile(userId);
 
@@ -122,14 +122,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.log('✅ [AuthContext] Perfil cargado:', userProfile.full_name);
         setProfile(userProfile);
       } else {
-        console.warn('⚠️  [AuthContext] No se encontró perfil para:', userId);
-        setProfile(null);
+        // Para OAuth (Google), el perfil puede estar siendo creado en paralelo
+        // Re-intentar hasta 3 veces con delay
+        if (retryCount < 3) {
+          console.log('⏳ [AuthContext] Perfil no encontrado, re-intentando en 1s...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return loadUserProfile(userId, retryCount + 1);
+        } else {
+          console.warn('⚠️  [AuthContext] No se encontró perfil después de 3 intentos:', userId);
+          setProfile(null);
+        }
       }
     } catch (error) {
       console.error('❌ [AuthContext] Error cargando perfil:', error);
+      // También re-intentar en caso de error (puede ser race condition)
+      if (retryCount < 3) {
+        console.log('⏳ [AuthContext] Error, re-intentando en 1s...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return loadUserProfile(userId, retryCount + 1);
+      }
       setProfile(null);
     } finally {
-      setIsLoading(false);
+      if (retryCount >= 3 || (await authService.getUserProfile(userId))) {
+        setIsLoading(false);
+      }
     }
   }
 
