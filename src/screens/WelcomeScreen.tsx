@@ -12,13 +12,10 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Image,
-  Dimensions,
   StatusBar,
+  ScrollView,
 } from 'react-native';
-import { ShoppingBag, Store, Heart, Zap, Package, CreditCard } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-
-const { width, height } = Dimensions.get('window');
+import { Store, CreditCard, Tag } from 'lucide-react-native';
 
 interface WelcomeScreenProps {
   onLogin: () => void;
@@ -29,73 +26,76 @@ interface WelcomeScreenProps {
 export default function WelcomeScreen({ onLogin, onSignUp, onBrowse }: WelcomeScreenProps) {
   return (
     <SafeAreaView className="flex-1 bg-white">
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* Gradient Background */}
-      <LinearGradient
-        colors={['#4F46E5', '#7C3AED']}
-        className="absolute inset-0"
-      />
-
-      <View className="flex-1 justify-between p-6">
-
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingVertical: 24 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Header con Logo */}
-        <View className="items-center mt-12">
-          <View className="bg-white/20 p-6 rounded-3xl mb-6 backdrop-blur-xl">
-            <ShoppingBag size={72} color="white" strokeWidth={2} />
-          </View>
+        <View className="items-center mt-6 mb-6">
+          {/* Isotipo Grumo */}
+          <Image
+            source={require('../../assets/grumo-isotipo-trimmed.png')}
+            style={{ width: 70, height: 70, marginBottom: 12 }}
+            resizeMode="contain"
+          />
 
-          <Text className="text-5xl font-bold text-white text-center mb-3">
-            ShopUnite
-          </Text>
+          {/* Logo Grumo Negro */}
+          <Image
+            source={require('../../assets/grumo-logo-negro-trimmed.png')}
+            style={{ width: 180, height: 48, marginBottom: 12 }}
+            resizeMode="contain"
+          />
 
-          <Text className="text-xl text-white/90 text-center px-4 leading-7">
+          <Text className="text-base text-gray-600 text-center px-4 leading-5">
             Todas tus tiendas favoritas{'\n'}en un solo lugar
           </Text>
         </View>
 
-        {/* Features Cards */}
-        <View className="space-y-4 my-8">
+        {/* Features Cards - Flotando con sombra */}
+        <View className="gap-2 mb-5">
           <FeatureCard
-            icon={<Store size={28} color="#4F46E5" />}
+            icon={<Store size={22} color="#9333EA" />}
             title="Un solo carrito"
             description="Compra en múltiples tiendas sin complicaciones"
           />
           <FeatureCard
-            icon={<CreditCard size={28} color="#4F46E5" />}
+            icon={<CreditCard size={22} color="#9333EA" />}
             title="Pago único"
             description="Una sola transacción para todas tus compras"
           />
           <FeatureCard
-            icon={<Package size={28} color="#4F46E5" />}
-            title="Seguimiento real"
-            description="Rastrea todos tus pedidos en tiempo real"
+            icon={<Tag size={22} color="#9333EA" />}
+            title="Ofertas especiales"
+            description="Suscríbete a tus tiendas favoritas y obtén increíbles sorpresas"
           />
         </View>
 
         {/* Action Buttons */}
-        <View className="space-y-3 mb-6">
+        <View className="gap-3 mb-4">
           <TouchableOpacity
             onPress={onSignUp}
-            className="bg-white py-4 rounded-2xl shadow-lg active:scale-95"
+            className="bg-purple-600 py-4 rounded-2xl active:scale-95"
             style={{
-              shadowColor: '#000',
+              shadowColor: '#9333EA',
               shadowOffset: { width: 0, height: 4 },
               shadowOpacity: 0.3,
               shadowRadius: 8,
               elevation: 8,
             }}
           >
-            <Text className="text-indigo-600 font-bold text-center text-lg">
+            <Text className="text-white font-bold text-center text-lg">
               Crear cuenta gratis
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={onLogin}
-            className="bg-white/20 backdrop-blur py-4 rounded-2xl border-2 border-white/50 active:scale-95"
+            className="bg-white py-4 rounded-2xl border-2 border-gray-200 active:scale-95"
           >
-            <Text className="text-white font-bold text-center text-lg">
+            <Text className="text-gray-700 font-bold text-center text-lg">
               Ya tengo cuenta
             </Text>
           </TouchableOpacity>
@@ -105,7 +105,7 @@ export default function WelcomeScreen({ onLogin, onSignUp, onBrowse }: WelcomeSc
               onPress={onBrowse}
               className="py-3 active:opacity-70"
             >
-              <Text className="text-white/80 text-center font-medium">
+              <Text className="text-gray-500 text-center font-medium">
                 Explorar sin cuenta →
               </Text>
             </TouchableOpacity>
@@ -113,25 +113,20 @@ export default function WelcomeScreen({ onLogin, onSignUp, onBrowse }: WelcomeSc
         </View>
 
         {/* Footer */}
-        <View className="items-center pb-4">
-          <View className="flex-row items-center space-x-2 mb-3">
-            <View className="w-2 h-2 bg-white/60 rounded-full" />
-            <View className="w-2 h-2 bg-white rounded-full" />
-            <View className="w-2 h-2 bg-white/60 rounded-full" />
-          </View>
-          <Text className="text-white/70 text-xs text-center px-8">
+        <View className="items-center pb-2 mt-auto">
+          <Text className="text-gray-400 text-xs text-center px-8">
             Al continuar, aceptas nuestros{' '}
-            <Text className="font-semibold">Términos de Servicio</Text>
+            <Text className="font-semibold text-gray-500">Términos de Servicio</Text>
             {' '}y{' '}
-            <Text className="font-semibold">Política de Privacidad</Text>
+            <Text className="font-semibold text-gray-500">Política de Privacidad</Text>
           </Text>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-// Feature Card Component
+// Feature Card Component - Flotando con sombra
 function FeatureCard({
   icon,
   title,
@@ -142,15 +137,24 @@ function FeatureCard({
   description: string;
 }) {
   return (
-    <View className="bg-white/95 backdrop-blur-xl p-5 rounded-2xl flex-row items-center space-x-4 shadow-lg">
-      <View className="bg-indigo-50 p-3 rounded-xl">
+    <View
+      className="bg-white p-3 rounded-xl flex-row items-center gap-2.5"
+      style={{
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 3,
+      }}
+    >
+      <View className="bg-purple-50 p-2 rounded-lg">
         {icon}
       </View>
       <View className="flex-1">
-        <Text className="text-gray-900 font-bold text-base mb-1">
+        <Text className="text-gray-900 font-bold text-sm mb-0.5">
           {title}
         </Text>
-        <Text className="text-gray-600 text-sm leading-5">
+        <Text className="text-gray-500 text-xs leading-4">
           {description}
         </Text>
       </View>

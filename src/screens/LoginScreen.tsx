@@ -23,7 +23,9 @@ import {
   ScrollView,
   Alert,
   SafeAreaView,
+  Image,
 } from 'react-native';
+import { ChevronLeft } from 'lucide-react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { ViewState } from '../types';
 import { signInWithGoogle } from '../services/authService';
@@ -150,20 +152,31 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
       >
+        {/* Header fijo con isotipo */}
+        <View className="flex-row items-center justify-between px-4 py-3 border-b border-gray-100">
+          <TouchableOpacity
+            onPress={() => onNavigate(ViewState.WELCOME)}
+            disabled={isLoading}
+            className="flex-row items-center p-2 -ml-2"
+          >
+            <ChevronLeft size={24} color="#9333EA" />
+            <Text className="text-purple-600 text-base font-medium">Volver</Text>
+          </TouchableOpacity>
+
+          {/* Isotipo pequeño */}
+          <Image
+            source={require('../../assets/grumo-isotipo-trimmed.png')}
+            style={{ width: 36, height: 36 }}
+            resizeMode="contain"
+          />
+        </View>
+
         <ScrollView
-          contentContainerClassName="flex-grow justify-center px-6 py-8"
+          className="flex-1"
+          contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 24, paddingBottom: 40 }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* BACK BUTTON */}
-          <TouchableOpacity
-            onPress={() => onNavigate(ViewState.WELCOME)}
-            className="mb-6"
-            disabled={isLoading}
-          >
-            <Text className="text-indigo-600 text-base font-medium">← Volver</Text>
-          </TouchableOpacity>
-
           {/* HEADER */}
           <View className="mb-8">
             <Text className="text-3xl font-bold text-gray-900 mb-2">
@@ -201,121 +214,121 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
             )}
           </TouchableOpacity>
 
-        {/* DIVIDER */}
-        <View className="flex-row items-center my-6">
-          <View className="flex-1 h-px bg-gray-300" />
-          <Text className="mx-4 text-gray-500 text-sm">o continúa con email</Text>
-          <View className="flex-1 h-px bg-gray-300" />
-        </View>
-
-        {/* FORM */}
-        <View className="space-y-4">
-          {/* Email Input */}
-          <View>
-            <Text className="text-sm font-medium text-gray-700 mb-2">
-              Email
-            </Text>
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              placeholder="tu@email.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-              className={`w-full px-4 py-3 border rounded-xl ${
-                errors.email ? 'border-red-500' : 'border-gray-300'
-              } bg-gray-50`}
-              editable={!isLoading}
-            />
-            {errors.email && (
-              <Text className="text-red-500 text-xs mt-1">{errors.email}</Text>
-            )}
+          {/* DIVIDER */}
+          <View className="flex-row items-center my-6">
+            <View className="flex-1 h-px bg-gray-300" />
+            <Text className="mx-4 text-gray-500 text-sm">o continúa con email</Text>
+            <View className="flex-1 h-px bg-gray-300" />
           </View>
 
-          {/* Password Input */}
-          <View>
-            <Text className="text-sm font-medium text-gray-700 mb-2">
-              Contraseña
-            </Text>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder="••••••••"
-              secureTextEntry
-              autoCapitalize="none"
-              autoComplete="password"
-              className={`w-full px-4 py-3 border rounded-xl ${
-                errors.password ? 'border-red-500' : 'border-gray-300'
-              } bg-gray-50`}
-              editable={!isLoading}
-            />
-            {errors.password && (
-              <Text className="text-red-500 text-xs mt-1">
-                {errors.password}
+          {/* FORM */}
+          <View className="gap-4">
+            {/* Email Input */}
+            <View>
+              <Text className="text-sm font-medium text-gray-700 mb-2">
+                Email
               </Text>
-            )}
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder="tu@email.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                className={`w-full px-4 py-3 border rounded-xl ${
+                  errors.email ? 'border-red-500' : 'border-gray-300'
+                } bg-gray-50`}
+                editable={!isLoading}
+              />
+              {errors.email && (
+                <Text className="text-red-500 text-xs mt-1">{errors.email}</Text>
+              )}
+            </View>
+
+            {/* Password Input */}
+            <View>
+              <Text className="text-sm font-medium text-gray-700 mb-2">
+                Contraseña
+              </Text>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="••••••••"
+                secureTextEntry
+                autoCapitalize="none"
+                autoComplete="password"
+                className={`w-full px-4 py-3 border rounded-xl ${
+                  errors.password ? 'border-red-500' : 'border-gray-300'
+                } bg-gray-50`}
+                editable={!isLoading}
+              />
+              {errors.password && (
+                <Text className="text-red-500 text-xs mt-1">
+                  {errors.password}
+                </Text>
+              )}
+            </View>
+
+            {/* Forgot Password Link */}
+            <TouchableOpacity
+              onPress={() => {
+                // TODO: Implementar pantalla de recuperación de contraseña
+                Alert.alert(
+                  'Recuperar contraseña',
+                  'Esta funcionalidad se implementará próximamente'
+                );
+              }}
+              disabled={isLoading}
+              className="self-end"
+            >
+              <Text className="text-purple-600 text-sm font-medium">
+                ¿Olvidaste tu contraseña?
+              </Text>
+            </TouchableOpacity>
+
+            {/* Login Button */}
+            <TouchableOpacity
+              onPress={handleLogin}
+              disabled={isLoading}
+              className={`w-full py-4 rounded-2xl mt-4 ${
+                isLoading ? 'bg-gray-400' : 'bg-purple-600'
+              }`}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text className="text-white text-center text-lg font-semibold">
+                  Iniciar Sesión
+                </Text>
+              )}
+            </TouchableOpacity>
           </View>
 
-          {/* Forgot Password Link */}
-          <TouchableOpacity
-            onPress={() => {
-              // TODO: Implementar pantalla de recuperación de contraseña
-              Alert.alert(
-                'Recuperar contraseña',
-                'Esta funcionalidad se implementará próximamente'
-              );
-            }}
-            disabled={isLoading}
-            className="self-end"
-          >
-            <Text className="text-blue-600 text-sm font-medium">
-              ¿Olvidaste tu contraseña?
+          {/* SIGN UP LINK */}
+          <View className="flex-row justify-center items-center mt-8">
+            <Text className="text-gray-600 text-base">
+              ¿No tienes cuenta?{' '}
             </Text>
-          </TouchableOpacity>
-
-          {/* Login Button */}
-          <TouchableOpacity
-            onPress={handleLogin}
-            disabled={isLoading}
-            className={`w-full py-4 rounded-2xl mt-6 ${
-              isLoading ? 'bg-gray-400' : 'bg-indigo-600'
-            }`}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text className="text-white text-center text-lg font-semibold">
-                Iniciar Sesión
+            <TouchableOpacity
+              onPress={() => onNavigate(ViewState.SIGNUP)}
+              disabled={isLoading}
+            >
+              <Text className="text-purple-600 text-base font-semibold">
+                Regístrate
               </Text>
-            )}
-          </TouchableOpacity>
-        </View>
+            </TouchableOpacity>
+          </View>
 
-        {/* SIGN UP LINK */}
-        <View className="flex-row justify-center items-center mt-8">
-          <Text className="text-gray-600 text-base">
-            ¿No tienes cuenta?{' '}
-          </Text>
+          {/* GUEST MODE (Opcional - permite navegar sin cuenta) */}
           <TouchableOpacity
-            onPress={() => onNavigate(ViewState.SIGNUP)}
+            onPress={() => onNavigate(ViewState.HOME)}
             disabled={isLoading}
+            className="mt-6 mb-4"
           >
-            <Text className="text-blue-600 text-base font-semibold">
-              Regístrate
+            <Text className="text-gray-500 text-center text-sm">
+              Continuar sin cuenta
             </Text>
           </TouchableOpacity>
-        </View>
-
-        {/* GUEST MODE (Opcional - permite navegar sin cuenta) */}
-        <TouchableOpacity
-          onPress={() => onNavigate(ViewState.HOME)}
-          disabled={isLoading}
-          className="mt-6 mb-4"
-        >
-          <Text className="text-gray-500 text-center text-sm">
-            Continuar sin cuenta
-          </Text>
-        </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

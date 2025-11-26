@@ -440,3 +440,88 @@ export async function deactivatePushToken(
     return { success: false };
   }
 }
+
+// =====================================================
+// NOTIFICACIONES DEL USUARIO
+// =====================================================
+
+export interface UserNotification {
+  id: number;
+  store_id: string;
+  store_name: string;
+  title: string;
+  body: string;
+  data: NotificationData;
+  sent_at: string;
+  created_at: string;
+}
+
+/**
+ * Obtener notificaciones recibidas por el usuario
+ * Basado en las tiendas a las que está suscrito
+ */
+export async function getUserNotifications(
+  userId: string,
+  limit: number = 30
+): Promise<{ notifications: UserNotification[]; error?: string }> {
+  try {
+    console.log('[PushNotif] Getting notifications for user:', userId);
+
+    // 1. Obtener suscripciones del usuario
+    const { data: subscriptions, error: subError } = await supabase
+      .from('store_subscriptions')
+      .select('store_domain')
+      .eq('user_id', userId)
+      .eq('is_active', true);
+
+    if (subError) {
+      console.error('[PushNotif] Error getting subscriptions:', subError);
+      return { notifications: [], error: 'Error al obtener suscripciones' };
+    }
+
+    if (!subscriptions || subscriptions.length === 0) {
+      console.log('[PushNotif] No subscriptions found');
+      return { notifications: [] };
+    }
+
+    const storeDomains = subscriptions.map(s => s.store_domain);
+    console.log('[PushNotif] User subscribed to:', storeDomains);
+
+    // 2. Obtener notificaciones de esas tiendas
+    const { data: notifications, error: notifError } = await supabase
+      .from('notifications_sent')
+      .select('id, store_id, store_name, title, body, data, sent_at, created_at')
+      .in('store_id', storeDomains)
+      .not('sent_at', 'is', null)
+      .order('sent_at', { ascending: false })
+      .limit(limit);
+
+    if (notifError) {
+      console.error('[PushNotif] Error getting notifications:', notifError);
+      return { notifications: [], error: 'Error al obtener notificaciones' };
+    }
+
+    console.log('[PushNotif] Found', notifications?.length || 0, 'notifications');
+    return { notifications: (notifications as UserNotification[]) || [] };
+  } catch (error: any) {
+    console.error('[PushNotif] Exception getting user notifications:', error);
+    return { notifications: [], error: error.message || 'Error desconocido' };
+  }
+}
+
+/**
+ * Marcar notificación como leída (para futuro uso)
+ */
+export async function markNotificationAsRead(
+  userId: string,
+  notificationId: number
+): Promise<{ success: boolean }> {
+  try {
+    // Por ahora solo registramos la interacción como "opened"
+    await trackNotificationInteraction(notificationId, userId, 'opened');
+    return { success: true };
+  } catch (error) {
+    console.error('[PushNotif] Error marking as read:', error);
+    return { success: false };
+  }
+}

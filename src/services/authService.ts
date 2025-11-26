@@ -658,13 +658,17 @@ export async function signInWithGoogle(): Promise<AuthResponse> {
  */
 export async function signOutGoogle(): Promise<void> {
   try {
-    const isSignedIn = await GoogleSignin.isSignedIn();
-    if (isSignedIn) {
-      await GoogleSignin.signOut();
-      console.log('✅ [AuthService] Google Sign Out exitoso');
+    // Intentar hacer sign out directamente sin verificar isSignedIn
+    // ya que isSignedIn puede no estar disponible en todas las versiones
+    await GoogleSignin.signOut();
+    console.log('✅ [AuthService] Google Sign Out exitoso');
+  } catch (error: any) {
+    // Si el error es porque no hay sesión activa, ignorarlo
+    if (error?.message?.includes('not signed in') || error?.code === 'SIGN_IN_REQUIRED') {
+      console.log('ℹ️  [AuthService] No había sesión de Google activa');
+    } else {
+      console.log('⚠️  [AuthService] Google Sign Out no disponible o sin sesión activa');
     }
-  } catch (error) {
-    console.error('⚠️  [AuthService] Error en Google Sign Out:', error);
     // Non-critical, no afecta el flujo
   }
 }

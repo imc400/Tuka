@@ -23,7 +23,9 @@ import {
   ScrollView,
   Alert,
   SafeAreaView,
+  Image,
 } from 'react-native';
+import { ChevronLeft } from 'lucide-react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { ViewState } from '../types';
 import { signInWithGoogle } from '../services/authService';
@@ -188,22 +190,34 @@ export default function SignUpScreen({ onNavigate }: SignUpScreenProps) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
       >
+        {/* Header fijo */}
+        <View className="flex-row items-center justify-between px-4 py-3 border-b border-gray-100">
+          <TouchableOpacity
+            onPress={() => onNavigate(ViewState.WELCOME)}
+            disabled={isLoading}
+            className="flex-row items-center p-2 -ml-2"
+          >
+            <ChevronLeft size={24} color="#9333EA" />
+            <Text className="text-purple-600 text-base font-medium">Volver</Text>
+          </TouchableOpacity>
+
+          {/* Isotipo pequeño */}
+          <Image
+            source={require('../../assets/grumo-isotipo-trimmed.png')}
+            style={{ width: 36, height: 36 }}
+            resizeMode="contain"
+          />
+        </View>
+
         <ScrollView
-          contentContainerClassName="flex-grow px-6 py-6"
+          className="flex-1"
+          contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 40 }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
           {/* HEADER */}
-          <View className="mb-6">
-            <TouchableOpacity
-              onPress={() => onNavigate(ViewState.WELCOME)}
-              className="mb-4"
-              disabled={isLoading}
-            >
-              <Text className="text-indigo-600 text-base font-medium">← Volver</Text>
-            </TouchableOpacity>
-
-            <Text className="text-3xl font-bold text-gray-900 mb-2">
+          <View className="mb-5">
+            <Text className="text-2xl font-bold text-gray-900 mb-1">
               Crear cuenta
             </Text>
             <Text className="text-base text-gray-600">
@@ -215,7 +229,7 @@ export default function SignUpScreen({ onNavigate }: SignUpScreenProps) {
           <TouchableOpacity
             onPress={handleGoogleSignIn}
             disabled={isLoading || isGoogleLoading}
-            className="flex-row items-center justify-center bg-white border border-gray-300 py-4 rounded-2xl mb-5"
+            className="flex-row items-center justify-center bg-white border border-gray-300 py-3.5 rounded-2xl mb-4"
             style={{
               shadowColor: '#000',
               shadowOffset: { width: 0, height: 2 },
@@ -238,168 +252,168 @@ export default function SignUpScreen({ onNavigate }: SignUpScreenProps) {
             )}
           </TouchableOpacity>
 
-        {/* DIVIDER */}
-        <View className="flex-row items-center my-6">
-          <View className="flex-1 h-px bg-gray-300" />
-          <Text className="mx-4 text-gray-500 text-sm">o regístrate con email</Text>
-          <View className="flex-1 h-px bg-gray-300" />
-        </View>
+          {/* DIVIDER */}
+          <View className="flex-row items-center my-4">
+            <View className="flex-1 h-px bg-gray-300" />
+            <Text className="mx-4 text-gray-500 text-sm">o regístrate con email</Text>
+            <View className="flex-1 h-px bg-gray-300" />
+          </View>
 
-        {/* FORM */}
-        <View className="space-y-4">
-          {/* Full Name Input */}
-          <View>
-            <Text className="text-sm font-medium text-gray-700 mb-2">
-              Nombre completo *
-            </Text>
-            <TextInput
-              value={fullName}
-              onChangeText={setFullName}
-              placeholder="Juan Pérez"
-              autoCapitalize="words"
-              autoComplete="name"
-              className={`w-full px-4 py-3 border rounded-xl ${
-                errors.fullName ? 'border-red-500' : 'border-gray-300'
-              } bg-gray-50`}
-              editable={!isLoading}
-            />
-            {errors.fullName && (
-              <Text className="text-red-500 text-xs mt-1">
-                {errors.fullName}
+          {/* FORM */}
+          <View className="gap-3">
+            {/* Full Name Input */}
+            <View>
+              <Text className="text-sm font-medium text-gray-700 mb-1.5">
+                Nombre completo *
               </Text>
-            )}
-          </View>
+              <TextInput
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="Juan Pérez"
+                autoCapitalize="words"
+                autoComplete="name"
+                className={`w-full px-4 py-3 border rounded-xl ${
+                  errors.fullName ? 'border-red-500' : 'border-gray-300'
+                } bg-gray-50`}
+                editable={!isLoading}
+              />
+              {errors.fullName && (
+                <Text className="text-red-500 text-xs mt-1">
+                  {errors.fullName}
+                </Text>
+              )}
+            </View>
 
-          {/* Email Input */}
-          <View>
-            <Text className="text-sm font-medium text-gray-700 mb-2">
-              Email *
-            </Text>
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              placeholder="tu@email.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-              className={`w-full px-4 py-3 border rounded-xl ${
-                errors.email ? 'border-red-500' : 'border-gray-300'
-              } bg-gray-50`}
-              editable={!isLoading}
-            />
-            {errors.email && (
-              <Text className="text-red-500 text-xs mt-1">{errors.email}</Text>
-            )}
-          </View>
-
-          {/* Phone Input (Opcional) */}
-          <View>
-            <Text className="text-sm font-medium text-gray-700 mb-2">
-              Teléfono <Text className="text-gray-400">(opcional)</Text>
-            </Text>
-            <TextInput
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="+56912345678"
-              keyboardType="phone-pad"
-              autoComplete="tel"
-              className={`w-full px-4 py-3 border rounded-xl ${
-                errors.phone ? 'border-red-500' : 'border-gray-300'
-              } bg-gray-50`}
-              editable={!isLoading}
-            />
-            {errors.phone && (
-              <Text className="text-red-500 text-xs mt-1">{errors.phone}</Text>
-            )}
-          </View>
-
-          {/* Password Input */}
-          <View>
-            <Text className="text-sm font-medium text-gray-700 mb-2">
-              Contraseña *
-            </Text>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Mínimo 6 caracteres"
-              secureTextEntry
-              autoCapitalize="none"
-              autoComplete="password-new"
-              className={`w-full px-4 py-3 border rounded-xl ${
-                errors.password ? 'border-red-500' : 'border-gray-300'
-              } bg-gray-50`}
-              editable={!isLoading}
-            />
-            {errors.password && (
-              <Text className="text-red-500 text-xs mt-1">
-                {errors.password}
+            {/* Email Input */}
+            <View>
+              <Text className="text-sm font-medium text-gray-700 mb-1.5">
+                Email *
               </Text>
-            )}
-          </View>
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder="tu@email.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                className={`w-full px-4 py-3 border rounded-xl ${
+                  errors.email ? 'border-red-500' : 'border-gray-300'
+                } bg-gray-50`}
+                editable={!isLoading}
+              />
+              {errors.email && (
+                <Text className="text-red-500 text-xs mt-1">{errors.email}</Text>
+              )}
+            </View>
 
-          {/* Confirm Password Input */}
-          <View>
-            <Text className="text-sm font-medium text-gray-700 mb-2">
-              Confirmar contraseña *
-            </Text>
-            <TextInput
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              placeholder="Repite tu contraseña"
-              secureTextEntry
-              autoCapitalize="none"
-              autoComplete="password-new"
-              className={`w-full px-4 py-3 border rounded-xl ${
-                errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
-              } bg-gray-50`}
-              editable={!isLoading}
-            />
-            {errors.confirmPassword && (
-              <Text className="text-red-500 text-xs mt-1">
-                {errors.confirmPassword}
+            {/* Phone Input (Opcional) */}
+            <View>
+              <Text className="text-sm font-medium text-gray-700 mb-1.5">
+                Teléfono <Text className="text-gray-400">(opcional)</Text>
               </Text>
-            )}
-          </View>
+              <TextInput
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="+56912345678"
+                keyboardType="phone-pad"
+                autoComplete="tel"
+                className={`w-full px-4 py-3 border rounded-xl ${
+                  errors.phone ? 'border-red-500' : 'border-gray-300'
+                } bg-gray-50`}
+                editable={!isLoading}
+              />
+              {errors.phone && (
+                <Text className="text-red-500 text-xs mt-1">{errors.phone}</Text>
+              )}
+            </View>
 
-          {/* Terms & Conditions */}
-          <View className="mt-4">
-            <Text className="text-xs text-gray-500 text-center leading-5">
-              Al registrarte, aceptas nuestros{' '}
-              <Text className="text-indigo-600 font-medium">Términos y Condiciones</Text> y{' '}
-              <Text className="text-indigo-600 font-medium">Política de Privacidad</Text>
-            </Text>
-          </View>
-
-          {/* Sign Up Button */}
-          <TouchableOpacity
-            onPress={handleSignUp}
-            disabled={isLoading}
-            className={`w-full py-4 rounded-2xl mt-4 ${
-              isLoading ? 'bg-gray-400' : 'bg-indigo-600'
-            }`}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text className="text-white text-center text-lg font-semibold">
-                Crear Cuenta
+            {/* Password Input */}
+            <View>
+              <Text className="text-sm font-medium text-gray-700 mb-1.5">
+                Contraseña *
               </Text>
-            )}
-          </TouchableOpacity>
-        </View>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Mínimo 6 caracteres"
+                secureTextEntry
+                autoCapitalize="none"
+                autoComplete="password-new"
+                className={`w-full px-4 py-3 border rounded-xl ${
+                  errors.password ? 'border-red-500' : 'border-gray-300'
+                } bg-gray-50`}
+                editable={!isLoading}
+              />
+              {errors.password && (
+                <Text className="text-red-500 text-xs mt-1">
+                  {errors.password}
+                </Text>
+              )}
+            </View>
 
-        {/* LOGIN LINK */}
-        <View className="flex-row justify-center items-center mt-6 mb-4">
-          <Text className="text-gray-600 text-base">¿Ya tienes cuenta? </Text>
-          <TouchableOpacity
-            onPress={() => onNavigate(ViewState.LOGIN)}
-            disabled={isLoading}
-          >
-            <Text className="text-indigo-600 text-base font-semibold">
-              Inicia sesión
-            </Text>
-          </TouchableOpacity>
-        </View>
+            {/* Confirm Password Input */}
+            <View>
+              <Text className="text-sm font-medium text-gray-700 mb-1.5">
+                Confirmar contraseña *
+              </Text>
+              <TextInput
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Repite tu contraseña"
+                secureTextEntry
+                autoCapitalize="none"
+                autoComplete="password-new"
+                className={`w-full px-4 py-3 border rounded-xl ${
+                  errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
+                } bg-gray-50`}
+                editable={!isLoading}
+              />
+              {errors.confirmPassword && (
+                <Text className="text-red-500 text-xs mt-1">
+                  {errors.confirmPassword}
+                </Text>
+              )}
+            </View>
+
+            {/* Terms & Conditions */}
+            <View className="mt-2">
+              <Text className="text-xs text-gray-500 text-center leading-5">
+                Al registrarte, aceptas nuestros{' '}
+                <Text className="text-purple-600 font-medium">Términos y Condiciones</Text> y{' '}
+                <Text className="text-purple-600 font-medium">Política de Privacidad</Text>
+              </Text>
+            </View>
+
+            {/* Sign Up Button */}
+            <TouchableOpacity
+              onPress={handleSignUp}
+              disabled={isLoading}
+              className={`w-full py-4 rounded-2xl mt-2 ${
+                isLoading ? 'bg-gray-400' : 'bg-purple-600'
+              }`}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text className="text-white text-center text-lg font-semibold">
+                  Crear Cuenta
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* LOGIN LINK */}
+          <View className="flex-row justify-center items-center mt-5">
+            <Text className="text-gray-600 text-base">¿Ya tienes cuenta? </Text>
+            <TouchableOpacity
+              onPress={() => onNavigate(ViewState.LOGIN)}
+              disabled={isLoading}
+            >
+              <Text className="text-purple-600 text-base font-semibold">
+                Inicia sesión
+              </Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

@@ -96,9 +96,18 @@ serve(async (req) => {
 
 /**
  * Handle new product creation
+ * IMPORTANT: Only create products that are ACTIVE (published)
+ * Draft and archived products should NOT be in the cache
  */
 async function handleProductCreate(supabase: any, shopDomain: string, product: any) {
-  console.log(`✨ Creating product: ${product.title}`)
+  console.log(`✨ Creating product: ${product.title} (status: ${product.status})`)
+
+  // CRITICAL: Only add products that are ACTIVE (published)
+  // Shopify status can be: 'active', 'draft', 'archived'
+  if (product.status !== 'active') {
+    console.log(`⏭️ Skipping product ${product.title} - status is "${product.status}" (not active)`)
+    return
+  }
 
   const productData = {
     id: `gid://shopify/Product/${product.id}`,
@@ -137,13 +146,42 @@ async function handleProductCreate(supabase: any, shopDomain: string, product: a
 }
 
 /**
- * Handle product updates (price, title, description, etc)
+ * Handle product updates (price, title, description, status changes, etc)
+ * CRITICAL: If product is changed to draft/archived, REMOVE it from cache
  */
 async function handleProductUpdate(supabase: any, shopDomain: string, product: any) {
-  console.log(`🔄 Updating product: ${product.title}`)
+  console.log(`🔄 Updating product: ${product.title} (status: ${product.status})`)
 
+  const productId = `gid://shopify/Product/${product.id}`
+
+  // CRITICAL: If product is NOT active (draft or archived), DELETE it from cache
+  // This ensures unpublished products never appear in the app
+  if (product.status !== 'active') {
+    console.log(`🗑️ Product ${product.title} is now "${product.status}" - REMOVING from cache`)
+
+    // Delete variants first (foreign key constraint)
+    await supabase
+      .from('product_variants')
+      .delete()
+      .eq('product_id', productId)
+
+    // Delete product
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', productId)
+
+    if (error) {
+      console.error('Error removing unpublished product:', error)
+    } else {
+      console.log(`✅ Unpublished product removed from cache: ${product.title}`)
+    }
+    return
+  }
+
+  // Product is ACTIVE - upsert it
   const productData = {
-    id: `gid://shopify/Product/${product.id}`,
+    id: productId,
     store_domain: shopDomain,
     title: product.title,
     description: product.body_html || '',

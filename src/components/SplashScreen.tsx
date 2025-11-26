@@ -6,41 +6,38 @@
  */
 
 import React from 'react';
-import { View, Text, ActivityIndicator, SafeAreaView, StatusBar } from 'react-native';
-import { ShoppingBag } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { View, Text, ActivityIndicator, SafeAreaView, StatusBar, Image } from 'react-native';
 
 export function SplashScreen() {
   return (
     <SafeAreaView className="flex-1 bg-white">
-      <StatusBar barStyle="light-content" />
-
-      {/* Gradient Background */}
-      <LinearGradient
-        colors={['#4F46E5', '#7C3AED']}
-        className="absolute inset-0"
-      />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       <View className="flex-1 justify-center items-center">
-        {/* Logo animado */}
-        <View className="bg-white/20 p-8 rounded-3xl mb-8">
-          <ShoppingBag size={80} color="white" strokeWidth={2} />
-        </View>
+        {/* Isotipo Grumo */}
+        <Image
+          source={require('../../assets/grumo-isotipo-trimmed.png')}
+          style={{ width: 80, height: 80, marginBottom: 16 }}
+          resizeMode="contain"
+        />
 
-        <Text className="text-5xl font-bold text-white mb-3">
-          ShopUnite
-        </Text>
+        {/* Logo Grumo Negro */}
+        <Image
+          source={require('../../assets/grumo-logo-negro-trimmed.png')}
+          style={{ width: 150, height: 40, marginBottom: 24 }}
+          resizeMode="contain"
+        />
 
-        <Text className="text-lg text-white/80 mb-12">
+        <Text className="text-base text-gray-400 mb-10">
           Cargando...
         </Text>
 
-        <ActivityIndicator size="large" color="white" />
+        <ActivityIndicator size="large" color="#9333EA" />
       </View>
 
       {/* Footer */}
       <View className="pb-8">
-        <Text className="text-white/60 text-xs text-center">
+        <Text className="text-gray-300 text-xs text-center">
           Versión 1.0.0
         </Text>
       </View>

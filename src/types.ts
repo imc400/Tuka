@@ -1,22 +1,60 @@
+export interface SelectedOption {
+  name: string;
+  value: string;
+}
+
 export interface ProductVariant {
   id: string;
   title: string;
   price: number;
+  compareAtPrice?: number | null; // Original price (for discounts)
   available: boolean;
+  quantityAvailable?: number | null; // Stock quantity
+  sku?: string | null;
+  barcode?: string | null;
+  selectedOptions?: SelectedOption[]; // e.g., [{name: "Color", value: "Red"}, {name: "Size", value: "M"}]
+  weight?: number | null;
+  weightUnit?: string | null;
+  image?: string | null; // Variant-specific image
+}
+
+export interface ProductOption {
+  id: string;
+  name: string; // e.g., "Color", "Size", "Material"
+  values: string[]; // e.g., ["Red", "Blue", "Green"]
+}
+
+export interface ProductSEO {
+  title?: string | null;
+  description?: string | null;
 }
 
 export interface Product {
   id: string;
   name: string;
   description: string;
+  descriptionHtml?: string | null; // Rich HTML description
   price: number;
+  compareAtPrice?: number | null; // Original price before discount (if on sale)
   imagePrompt: string; // Used to seed the placeholder image
   images?: string[]; // For real shopify images (multiple images)
   variants?: ProductVariant[]; // Product variants (sizes, colors, etc)
+
+  // Extended product data
+  handle?: string; // URL slug
+  vendor?: string | null; // Brand/manufacturer
+  productType?: string | null; // Category
+  tags?: string[]; // Product tags
+  availableForSale?: boolean; // Overall availability
+  totalInventory?: number | null; // Total stock across all variants
+  options?: ProductOption[]; // Product options (Color, Size, etc.)
+  metafields?: Record<string, string>; // Custom fields from Shopify
+  seo?: ProductSEO | null; // SEO metadata
 }
 
 export interface Store {
   id: string;
+  dbId?: number; // Database ID from Supabase stores table
   name: string;
   category: string;
   description: string;
@@ -37,6 +75,7 @@ export interface CartItem extends Product {
 }
 
 export interface ShopifyConfig {
+  id?: number; // Supabase store ID
   domain: string;
   accessToken: string;
   storeName?: string; // Override from Supabase
@@ -47,6 +86,7 @@ export interface ShopifyConfig {
 }
 
 export enum ViewState {
+  WELCOME = 'WELCOME',
   HOME = 'HOME',
   EXPLORE = 'EXPLORE',
   STORE_DETAIL = 'STORE_DETAIL',

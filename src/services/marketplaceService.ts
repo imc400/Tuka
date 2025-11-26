@@ -78,25 +78,51 @@ export const generateMarketplaceData = async (): Promise<Store[]> => {
         const cachedProducts = allProducts;
         console.log(`📦 [MarketplaceService] Retrieved ${cachedProducts?.length || 0} products for ${config.domain}`);
 
-        // 3. Transform cached products to app format
+        // Debug: Log products with discounts
+        const withDiscount = cachedProducts.filter((p: any) => p.compare_at_price && p.compare_at_price > p.price);
+        if (withDiscount.length > 0) {
+          console.log(`💰 [MarketplaceService] Found ${withDiscount.length} products with discounts in ${config.domain}`);
+        }
+
+        // 3. Transform cached products to app format (with all available data)
         const products: Product[] = (cachedProducts || []).map((p: any) => ({
           id: p.id,
           name: p.title,
           description: p.description || 'Descripción no disponible',
+          descriptionHtml: p.description_html || null,
           price: parseFloat(p.price),
-          imagePrompt: 'cached-product', // Legacy field, not used anymore
+          compareAtPrice: p.compare_at_price ? parseFloat(p.compare_at_price) : null,
+          imagePrompt: 'cached-product',
           images: p.images || [],
+          handle: p.handle || null,
+          vendor: p.vendor || null,
+          productType: p.product_type || null,
+          tags: p.tags || [],
+          availableForSale: p.available,
+          totalInventory: p.total_inventory || null,
+          options: p.options || [],
+          metafields: p.metafields || {},
+          seo: p.seo || null,
           variants: (p.product_variants || []).map((v: any) => ({
             id: v.id,
             title: v.title,
             price: parseFloat(v.price),
+            compareAtPrice: v.compare_at_price ? parseFloat(v.compare_at_price) : null,
             available: v.available,
+            quantityAvailable: v.inventory_quantity || null,
+            sku: v.sku || null,
+            barcode: v.barcode || null,
+            selectedOptions: v.selected_options || [],
+            weight: v.weight || null,
+            weightUnit: v.weight_unit || null,
+            image: v.image_url || null,
           })),
         }));
 
         // 4. Create store object with cached products
         const store: Store = {
           id: `real-${config.domain}`,
+          dbId: config.id, // Database ID for collections lookup
           name: config.storeName || config.domain,
           category: 'Tienda Oficial',
           description: config.description || 'Tienda oficial verificada en ShopUnite',

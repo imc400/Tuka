@@ -1,7 +1,9 @@
 /**
  * Edge Function: calculate-shipping
- * Calcula tarifas de envío reales usando Storefront API Checkout
- * Método recomendado por Shopify - Usa configuración existente de las tiendas
+ * Calcula tarifas de envío usando múltiples estrategias:
+ * 1. Configuración manual del dashboard (zone_manual)
+ * 2. Tarifas planas de Shopify (flat_shopify)
+ * 3. Storefront API como fallback
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -35,6 +37,55 @@ interface ShippingRate {
   code: string;
   source: string;
 }
+
+interface ShippingConfig {
+  shipping_type: 'flat_shopify' | 'zone_manual' | 'grumo_logistics';
+  free_shipping_threshold: number | null;
+  default_shipping_name: string;
+  estimated_delivery: string;
+  is_active: boolean;
+}
+
+interface ShippingZone {
+  region_code: string;
+  region_name: string;
+  base_price: number;
+  has_commune_breakdown: boolean;
+  is_active: boolean;
+  communes?: ShippingCommune[];
+}
+
+interface ShippingCommune {
+  commune_code: string;
+  commune_name: string;
+  price: number;
+  is_active: boolean;
+}
+
+// Mapeo de provincias a códigos de región
+const PROVINCE_TO_REGION: Record<string, string> = {
+  'Región Metropolitana de Santiago': 'RM',
+  'Santiago Metropolitan': 'RM',
+  'Santiago': 'RM',
+  'Metropolitana': 'RM',
+  'Valparaíso': 'V',
+  'Biobío': 'VIII',
+  'Bio Bio': 'VIII',
+  'Maule': 'VII',
+  "O'Higgins": 'VI',
+  'Araucanía': 'IX',
+  'La Araucanía': 'IX',
+  'Los Lagos': 'X',
+  'Los Ríos': 'XIV',
+  'Coquimbo': 'IV',
+  'Antofagasta': 'II',
+  'Atacama': 'III',
+  'Tarapacá': 'I',
+  'Arica y Parinacota': 'XV',
+  'Aysén': 'XI',
+  'Magallanes': 'XII',
+  'Ñuble': 'XVI',
+};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -71,7 +122,7 @@ serve(async (req) => {
 
     const { data: stores, error: storesError } = await supabase
       .from('stores')
-      .select('domain, access_token, admin_api_token')
+      .select('id, domain, access_token, admin_api_token')
       .in('domain', storeDomains);
 
     if (storesError) {
@@ -82,9 +133,114 @@ serve(async (req) => {
       throw new Error('Stores not found');
     }
 
-    // Calcular shipping para cada tienda usando Storefront Checkout API
+    // Calcular shipping para cada tienda
     const shippingRates: Record<string, ShippingRate[]> = {};
     const errors: Record<string, string> = {};
+
+    // Función helper para calcular tarifas desde configuración del dashboard
+    async function calculateFromDashboardConfig(
+      storeId: number,
+      storeDomain: string,
+      subtotal: number,
+      address: ShippingAddress
+    ): Promise<ShippingRate[] | null> {
+      try {
+        // Obtener configuración de envío
+        const { data: config } = await supabase
+          .from('store_shipping_config')
+          .select('*')
+          .eq('store_id', storeId)
+          .eq('is_active', true)
+          .single();
+
+        if (!config || config.shipping_type === 'flat_shopify') {
+          // No hay config o usa tarifas de Shopify
+          return null;
+        }
+
+        if (config.shipping_type === 'zone_manual') {
+          // Obtener zonas configuradas
+          const { data: zones } = await supabase
+            .from('store_shipping_zones')
+            .select(`
+              *,
+              communes:store_shipping_communes(*)
+            `)
+            .eq('store_id', storeId)
+            .eq('is_active', true);
+
+          if (!zones || zones.length === 0) {
+            console.log(`   ⚠️ No hay zonas configuradas para ${storeDomain}`);
+            return null;
+          }
+
+          // Determinar la región del usuario
+          const regionCode = PROVINCE_TO_REGION[address.province] || address.province;
+          console.log(`   📍 Buscando zona para región: ${regionCode} (provincia: ${address.province})`);
+
+          // Buscar zona que coincida con la región
+          const matchingZone = zones.find(
+            (z: ShippingZone) => z.region_code === regionCode || z.region_code === address.province
+          );
+
+          if (!matchingZone) {
+            console.log(`   ⚠️ No hay zona configurada para ${regionCode}`);
+            // Buscar si hay una zona "default" o usar la primera
+            const defaultZone = zones[0];
+            if (defaultZone) {
+              console.log(`   📦 Usando zona por defecto: ${defaultZone.region_name}`);
+            }
+          }
+
+          const zone = matchingZone || zones[0];
+          if (!zone) return null;
+
+          let price = zone.base_price;
+
+          // Si hay desglose por comuna, buscar precio específico
+          if (zone.has_commune_breakdown && zone.communes && zone.communes.length > 0) {
+            const cityNormalized = address.city.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const matchingCommune = zone.communes.find((c: ShippingCommune) => {
+              const communeNormalized = c.commune_name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+              return communeNormalized.includes(cityNormalized) || cityNormalized.includes(communeNormalized);
+            });
+
+            if (matchingCommune) {
+              price = matchingCommune.price;
+              console.log(`   🏘️ Comuna encontrada: ${matchingCommune.commune_name} - $${price}`);
+            }
+          }
+
+          // Verificar envío gratis
+          if (config.free_shipping_threshold && subtotal >= config.free_shipping_threshold) {
+            console.log(`   🎉 Envío gratis! Subtotal ($${subtotal}) >= umbral ($${config.free_shipping_threshold})`);
+            return [{
+              id: 'dashboard-free',
+              title: 'Envío gratis',
+              price: 0,
+              code: 'FREE',
+              source: 'dashboard-zone-free',
+            }];
+          }
+
+          const shippingName = config.default_shipping_name || 'Envío estándar';
+          const estimatedDelivery = config.estimated_delivery ? ` (${config.estimated_delivery})` : '';
+
+          return [{
+            id: `dashboard-${zone.region_code}`,
+            title: `${shippingName}${estimatedDelivery}`,
+            price: price,
+            code: zone.region_code,
+            source: 'dashboard-zone-manual',
+          }];
+        }
+
+        return null;
+      } catch (error: any) {
+        console.error(`   ❌ Error obteniendo config del dashboard:`, error.message);
+        return null;
+      }
+    }
 
     for (const store of stores) {
       try {
@@ -100,7 +256,24 @@ serve(async (req) => {
         const subtotal = storeItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
         console.log(`   💰 Cart subtotal: $${subtotal}`);
 
-        // SKIP STOREFRONT API si subtotal muy bajo (mejora UX - respuesta instantánea)
+        // PRIORIDAD 1: Intentar tarifas configuradas en el dashboard de Grumo
+        console.log(`   🔍 Buscando configuración en dashboard para store_id: ${store.id}`);
+        const dashboardRates = await calculateFromDashboardConfig(
+          store.id,
+          store.domain,
+          subtotal,
+          shippingAddress
+        );
+
+        if (dashboardRates && dashboardRates.length > 0) {
+          console.log(`   ✅ Usando tarifas del dashboard: ${dashboardRates.length} opción(es)`);
+          shippingRates[store.domain] = dashboardRates;
+          continue; // Siguiente tienda
+        }
+
+        console.log(`   📦 No hay config en dashboard, usando Shopify...`);
+
+        // PRIORIDAD 2: SKIP STOREFRONT API si subtotal muy bajo (mejora UX - respuesta instantánea)
         const FAST_PATH_THRESHOLD = 40000; // Mínimo razonable para tarifas nativas
         if (subtotal < FAST_PATH_THRESHOLD && store.admin_api_token) {
           console.log(`   ⚡ FAST PATH: Low subtotal - skipping Storefront API, using Admin API directly`);

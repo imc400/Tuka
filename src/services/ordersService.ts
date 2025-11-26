@@ -184,3 +184,73 @@ export function getStatusText(status: string): string {
       return status;
   }
 }
+
+// =====================================================
+// STORE NAMES MAPPING
+// =====================================================
+
+/**
+ * Cache de nombres de tiendas para evitar consultas repetidas
+ */
+let storeNamesCache: Record<string, string> | null = null;
+
+/**
+ * Obtener mapeo de dominios a nombres de tiendas
+ */
+export async function getStoreNamesMap(): Promise<Record<string, string>> {
+  if (storeNamesCache) {
+    return storeNamesCache;
+  }
+
+  try {
+    console.log('🏪 [OrdersService] Obteniendo nombres de tiendas...');
+
+    const { data, error } = await supabase
+      .from('stores')
+      .select('domain, store_name');
+
+    if (error) {
+      console.error('❌ [OrdersService] Error obteniendo nombres:', error);
+      return {};
+    }
+
+    const map: Record<string, string> = {};
+    data?.forEach((store) => {
+      if (store.domain && store.store_name) {
+        map[store.domain] = store.store_name;
+      }
+    });
+
+    storeNamesCache = map;
+    console.log(`✅ [OrdersService] ${Object.keys(map).length} nombres de tiendas cargados`);
+
+    return map;
+  } catch (error) {
+    console.error('❌ [OrdersService] Error inesperado:', error);
+    return {};
+  }
+}
+
+/**
+ * Obtener nombre de tienda dado un dominio
+ * Retorna el nombre configurado o formatea el dominio si no existe
+ */
+export function getStoreName(domain: string, storeNamesMap: Record<string, string>): string {
+  // Buscar por dominio completo
+  if (storeNamesMap[domain]) {
+    return storeNamesMap[domain];
+  }
+
+  // Buscar agregando .myshopify.com si no está
+  const fullDomain = domain.includes('.myshopify.com') ? domain : `${domain}.myshopify.com`;
+  if (storeNamesMap[fullDomain]) {
+    return storeNamesMap[fullDomain];
+  }
+
+  // Si no existe, formatear el dominio
+  return domain
+    .replace('.myshopify.com', '')
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}

@@ -23,12 +23,15 @@ export interface CreateAddressInput {
  */
 export async function getUserAddresses(userId: string): Promise<{ addresses: UserAddress[]; error?: string }> {
   try {
+    console.log('[AddressService] getUserAddresses - Starting for user:', userId);
     const { data, error } = await supabase
       .from('user_addresses')
       .select('*')
       .eq('user_id', userId)
       .order('is_default', { ascending: false })
-      .order('created_at', { descending: true });
+      .order('created_at', { ascending: false });
+
+    console.log('[AddressService] getUserAddresses - Result:', { count: data?.length || 0, error });
 
     if (error) {
       console.error('[AddressService] Error fetching addresses:', error);
@@ -47,12 +50,15 @@ export async function getUserAddresses(userId: string): Promise<{ addresses: Use
  */
 export async function getDefaultAddress(userId: string): Promise<{ address: UserAddress | null; error?: string }> {
   try {
+    console.log('[AddressService] getDefaultAddress - Starting for user:', userId);
     const { data, error } = await supabase
       .from('user_addresses')
       .select('*')
       .eq('user_id', userId)
       .eq('is_default', true)
       .single();
+
+    console.log('[AddressService] getDefaultAddress - Result:', { hasData: !!data, error: error?.code });
 
     if (error && error.code !== 'PGRST116') {
       // PGRST116 = no rows returned
@@ -156,18 +162,33 @@ export async function setDefaultAddress(
   addressId: number
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // La función SQL ensure_single_default_address se encarga de desmarcar las demás
-    const { error } = await supabase
+    console.log('[AddressService] setDefaultAddress - Setting address', addressId, 'as default for user', userId);
+
+    // Paso 1: Desmarcar todas las direcciones del usuario como no-default
+    const { error: unsetError } = await supabase
+      .from('user_addresses')
+      .update({ is_default: false })
+      .eq('user_id', userId)
+      .eq('is_default', true);
+
+    if (unsetError) {
+      console.error('[AddressService] Error unsetting previous default:', unsetError);
+      return { success: false, error: unsetError.message };
+    }
+
+    // Paso 2: Marcar la nueva dirección como default
+    const { error: setError } = await supabase
       .from('user_addresses')
       .update({ is_default: true })
       .eq('id', addressId)
       .eq('user_id', userId);
 
-    if (error) {
-      console.error('[AddressService] Error setting default address:', error);
-      return { success: false, error: error.message };
+    if (setError) {
+      console.error('[AddressService] Error setting new default address:', setError);
+      return { success: false, error: setError.message };
     }
 
+    console.log('[AddressService] setDefaultAddress - Successfully set address', addressId, 'as default');
     return { success: true };
   } catch (error) {
     console.error('[AddressService] Exception setting default address:', error);

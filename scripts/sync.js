@@ -25,6 +25,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 /**
  * Fetch ALL products from Shopify for syncing
+ * Enhanced to get all product data available in Storefront API
  */
 async function fetchAllShopifyProducts(domain, accessToken) {
   const allProducts = [];
@@ -34,6 +35,7 @@ async function fetchAllShopifyProducts(domain, accessToken) {
   console.log(`🔄 Starting full sync for ${domain}...`);
 
   while (hasNextPage) {
+    // Enhanced query with all available product data
     const query = `
       {
         products(first: 250${cursor ? `, after: "${cursor}"` : ''}) {
@@ -46,9 +48,18 @@ async function fetchAllShopifyProducts(domain, accessToken) {
               id
               title
               description
+              descriptionHtml
+              handle
               vendor
               productType
               tags
+              availableForSale
+              totalInventory
+              options {
+                id
+                name
+                values
+              }
               variants(first: 100) {
                 edges {
                   node {
@@ -59,18 +70,45 @@ async function fetchAllShopifyProducts(domain, accessToken) {
                     sku
                     barcode
                     availableForSale
+                    quantityAvailable
                     weight
                     weightUnit
+                    selectedOptions {
+                      name
+                      value
+                    }
+                    image {
+                      url
+                    }
                   }
                 }
               }
               images(first: 10) {
                 edges {
                   node {
-                    src
+                    url
                     altText
                   }
                 }
+              }
+              seo {
+                title
+                description
+              }
+              metafields(identifiers: [
+                {namespace: "custom", key: "material"},
+                {namespace: "custom", key: "care_instructions"},
+                {namespace: "custom", key: "dimensions"},
+                {namespace: "custom", key: "specifications"},
+                {namespace: "descriptors", key: "subtitle"},
+                {namespace: "product", key: "rating"},
+                {namespace: "reviews", key: "rating"},
+                {namespace: "reviews", key: "rating_count"}
+              ]) {
+                key
+                value
+                namespace
+                type
               }
             }
           }
@@ -98,27 +136,48 @@ async function fetchAllShopifyProducts(domain, accessToken) {
       }
 
       const productsData = json.data.products;
-      const products = productsData.edges.map((edge) => ({
-        id: edge.node.id,
-        title: edge.node.title,
-        description: edge.node.description || '',
-        vendor: edge.node.vendor || '',
-        product_type: edge.node.productType || '',
-        tags: edge.node.tags || [],
-        variants: edge.node.variants.edges.map((v) => ({
-          id: v.node.id,
-          title: v.node.title,
-          price: v.node.price.amount,
-          compare_at_price: v.node.compareAtPrice?.amount || null,
-          sku: v.node.sku,
-          barcode: v.node.barcode,
-          inventory_quantity: 0, // Not available in Storefront API
-          available: v.node.availableForSale,
-          weight: v.node.weight,
-          weight_unit: v.node.weightUnit,
-        })),
-        images: edge.node.images.edges.map((img) => img.node.src),
-      }));
+      const products = productsData.edges.map((edge) => {
+        // Process metafields into a key-value object
+        const metafields = {};
+        if (edge.node.metafields) {
+          edge.node.metafields.forEach((mf) => {
+            if (mf && mf.value) {
+              metafields[`${mf.namespace}.${mf.key}`] = mf.value;
+            }
+          });
+        }
+
+        return {
+          id: edge.node.id,
+          title: edge.node.title,
+          description: edge.node.description || '',
+          description_html: edge.node.descriptionHtml || '',
+          handle: edge.node.handle || '',
+          vendor: edge.node.vendor || '',
+          product_type: edge.node.productType || '',
+          tags: edge.node.tags || [],
+          available_for_sale: edge.node.availableForSale,
+          total_inventory: edge.node.totalInventory,
+          options: edge.node.options || [],
+          metafields: metafields,
+          seo: edge.node.seo || null,
+          variants: edge.node.variants.edges.map((v) => ({
+            id: v.node.id,
+            title: v.node.title,
+            price: v.node.price.amount,
+            compare_at_price: v.node.compareAtPrice?.amount || null,
+            sku: v.node.sku,
+            barcode: v.node.barcode,
+            inventory_quantity: v.node.quantityAvailable || 0,
+            available: v.node.availableForSale,
+            weight: v.node.weight,
+            weight_unit: v.node.weightUnit,
+            selected_options: v.node.selectedOptions || [],
+            image_url: v.node.image?.url || null,
+          })),
+          images: edge.node.images.edges.map((img) => img.node.url),
+        };
+      });
 
       allProducts.push(...products);
       hasNextPage = productsData.pageInfo.hasNextPage;
@@ -198,6 +257,8 @@ async function syncStoreProducts(domain, accessToken) {
         store_domain: domain,
         title: product.title,
         description: product.description,
+        description_html: product.description_html,
+        handle: product.handle,
         price: parseFloat(defaultVariant.price),
         compare_at_price: defaultVariant.compare_at_price
           ? parseFloat(defaultVariant.compare_at_price)
@@ -207,6 +268,10 @@ async function syncStoreProducts(domain, accessToken) {
         tags: product.tags,
         images: product.images,
         available: product.variants.some((v) => v.available),
+        total_inventory: product.total_inventory,
+        options: product.options,
+        metafields: product.metafields,
+        seo: product.seo,
         synced_at: new Date().toISOString(),
       };
 
@@ -236,10 +301,12 @@ async function syncStoreProducts(domain, accessToken) {
             : null,
           sku: variant.sku,
           barcode: variant.barcode,
-          inventory_quantity: 0, // Not available in Storefront API
+          inventory_quantity: variant.inventory_quantity || 0,
           available: variant.available,
           weight: variant.weight,
           weight_unit: variant.weight_unit,
+          selected_options: variant.selected_options,
+          image_url: variant.image_url,
         };
 
         const { error: variantError } = await supabase.from('product_variants').upsert(variantData, { onConflict: 'id' });

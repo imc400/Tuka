@@ -22,6 +22,8 @@ import {
   formatPrice,
   getStatusColor,
   getStatusText,
+  getStoreNamesMap,
+  getStoreName,
   type OrderDetails,
   type LineItem,
   type UserOrder,
@@ -42,6 +44,7 @@ export default function OrderDetailScreen({
   const [orderDetails, setOrderDetails] = useState<OrderDetails[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [storeNamesMap, setStoreNamesMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadOrderDetails();
@@ -51,7 +54,13 @@ export default function OrderDetailScreen({
     setIsLoading(true);
     setError(null);
 
-    const { details, error: fetchError } = await getOrderDetails(order.transaction_id);
+    // Cargar nombres de tiendas y detalles en paralelo
+    const [storeNames, { details, error: fetchError }] = await Promise.all([
+      getStoreNamesMap(),
+      getOrderDetails(order.transaction_id),
+    ]);
+
+    setStoreNamesMap(storeNames);
 
     if (fetchError) {
       setError(fetchError);
@@ -225,7 +234,7 @@ export default function OrderDetailScreen({
           <View className="p-5">
             {/* Productos agrupados por tienda */}
             {orderDetails.map((detail, index) => (
-              <StoreOrderSection key={detail.id} detail={detail} isFirst={index === 0} />
+              <StoreOrderSection key={detail.id} detail={detail} storeNamesMap={storeNamesMap} isFirst={index === 0} />
             ))}
 
             {/* Botón Repetir Pedido */}
@@ -255,11 +264,13 @@ export default function OrderDetailScreen({
 
 interface StoreOrderSectionProps {
   detail: OrderDetails;
+  storeNamesMap: Record<string, string>;
   isFirst: boolean;
 }
 
-function StoreOrderSection({ detail, isFirst }: StoreOrderSectionProps) {
-  const storeName = detail.store_domain.replace('.myshopify.com', '');
+function StoreOrderSection({ detail, storeNamesMap, isFirst }: StoreOrderSectionProps) {
+  // Usar el nombre configurado de la tienda
+  const storeName = getStoreName(detail.store_domain, storeNamesMap);
 
   // Calcular subtotal basado en los line_items
   const subtotal = detail.line_items.reduce((sum, item) => {

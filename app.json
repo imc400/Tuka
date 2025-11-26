@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "shopunite-marketplace",
+    "name": "Grumo",
     "slug": "shopunite-marketplace",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,7 +9,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0D0D12"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -37,14 +37,23 @@
       [
         "expo-notifications",
         {
-          "color": "#6366F1",
-          "sounds": []
+          "color": "#FF4F6F",
+          "sounds": [],
+          "mode": "production"
         }
       ],
       [
         "@react-native-google-signin/google-signin",
         {
           "iosUrlScheme": "com.googleusercontent.apps.356945634678-9drgid5o0fr3pvj7knbi79qa8a6csmou"
+        }
+      ],
+      [
+        "expo-notification-service-extension-plugin",
+        {
+          "mode": "development",
+          "iosNSEFilePath": "./ios-extensions/NotificationService.m",
+          "devTeam": "Y763D7J83C"
         }
       ]
     ],

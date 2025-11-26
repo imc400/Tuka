@@ -182,6 +182,20 @@ async function createShopifyOrders(transactionId: number, supabaseClient: any) {
       );
 
       try {
+        // Verificar si ya existe una orden para esta transacción y tienda (idempotencia)
+        const { data: existingOrders } = await supabaseClient
+          .from('shopify_orders')
+          .select('id, shopify_order_number')
+          .eq('transaction_id', transactionId)
+          .eq('store_domain', store.domain)
+          .eq('status', 'created')
+          .limit(1);
+
+        if (existingOrders && existingOrders.length > 0) {
+          console.log(`Order already exists for transaction ${transactionId} in ${store.domain}: ${existingOrders[0].shopify_order_number}`);
+          return { success: true, store: store.domain, orderNumber: existingOrders[0].shopify_order_number, skipped: true };
+        }
+
         // Verificar que la tienda tiene Admin API token
         if (!store.admin_api_token) {
           throw new Error(`Store ${store.domain} does not have Admin API token configured`);
@@ -288,8 +302,8 @@ async function createShopifyOrders(transactionId: number, supabaseClient: any) {
                 code: shippingCost.code,
               },
             }),
-            note: `Orden de ShopUnite - Transacción #${transactionId}`,
-            tags: 'shopunite, marketplace',
+            note: `Orden de Grumo - Transacción #${transactionId}`,
+            tags: 'grumo, marketplace',
             financial_status: 'paid', // Marcar como pagada
           },
         };
@@ -340,9 +354,11 @@ async function createShopifyOrders(transactionId: number, supabaseClient: any) {
           throw new Error('Error completing draft order');
         }
 
-        const orderData: ShopifyOrderResponse = await completeResponse.json();
-        const orderId = orderData.order?.admin_graphql_api_id || '';
-        const orderNumber = orderData.order?.order_number || 0;
+        const orderData = await completeResponse.json();
+        // La respuesta de complete.json viene en draft_order.order
+        const completedOrder = orderData.draft_order?.order || orderData.order;
+        const orderId = completedOrder?.admin_graphql_api_id || '';
+        const orderNumber = completedOrder?.order_number || completedOrder?.name || 'N/A';
 
         // Guardar en la DB
         await supabaseClient.from('shopify_orders').insert({

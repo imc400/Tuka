@@ -21,6 +21,8 @@ import {
   formatPrice,
   getStatusColor,
   getStatusText,
+  getStoreNamesMap,
+  getStoreName,
   type UserOrder,
 } from '../services/ordersService';
 
@@ -35,6 +37,7 @@ export default function OrdersScreen({ onBack, onSelectOrder }: OrdersScreenProp
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [storeNamesMap, setStoreNamesMap] = useState<Record<string, string>>({});
 
   // Cargar pedidos al montar
   useEffect(() => {
@@ -50,7 +53,13 @@ export default function OrdersScreen({ onBack, onSelectOrder }: OrdersScreenProp
     setIsLoading(true);
     setError(null);
 
-    const { orders: fetchedOrders, error: fetchError } = await getUserOrders(user.id);
+    // Cargar nombres de tiendas y pedidos en paralelo
+    const [storeNames, { orders: fetchedOrders, error: fetchError }] = await Promise.all([
+      getStoreNamesMap(),
+      getUserOrders(user.id),
+    ]);
+
+    setStoreNamesMap(storeNames);
 
     if (fetchError) {
       setError(fetchError);
@@ -135,6 +144,7 @@ export default function OrdersScreen({ onBack, onSelectOrder }: OrdersScreenProp
               <OrderCard
                 key={order.transaction_id}
                 order={order}
+                storeNamesMap={storeNamesMap}
                 onPress={() => onSelectOrder(order)}
               />
             ))}
@@ -151,12 +161,16 @@ export default function OrdersScreen({ onBack, onSelectOrder }: OrdersScreenProp
 
 interface OrderCardProps {
   order: UserOrder;
+  storeNamesMap: Record<string, string>;
   onPress: () => void;
 }
 
-function OrderCard({ order, onPress }: OrderCardProps) {
+function OrderCard({ order, storeNamesMap, onPress }: OrderCardProps) {
   const statusColor = getStatusColor(order.status);
   const statusText = getStatusText(order.status);
+
+  // Obtener nombres de tiendas usando el mapeo
+  const storeNames = order.stores.map(domain => getStoreName(domain, storeNamesMap));
 
   return (
     <TouchableOpacity
@@ -193,9 +207,9 @@ function OrderCard({ order, onPress }: OrderCardProps) {
       <View className="flex-row items-center gap-2 mb-3">
         <Store size={16} color="#6B7280" />
         <Text className="text-sm text-gray-700 flex-1">
-          {order.stores.length === 1
-            ? order.stores[0].replace('.myshopify.com', '')
-            : `${order.stores.length} tiendas`}
+          {storeNames.length === 1
+            ? storeNames[0]
+            : `${storeNames.length} tiendas`}
         </Text>
       </View>
 

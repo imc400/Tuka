@@ -162,9 +162,9 @@ export default function NotificationsAdminScreen({
             <Text className="text-xs text-gray-500">{storeName}</Text>
           </View>
         </View>
-        <View className="bg-indigo-100 px-3 py-1.5 rounded-full flex-row items-center gap-1">
-          <Users size={14} color="#4F46E5" />
-          <Text className="text-indigo-600 text-xs font-bold">{subscriberCount}</Text>
+        <View className="bg-purple-100 px-3 py-1.5 rounded-full flex-row items-center gap-1">
+          <Users size={14} color="#9333EA" />
+          <Text className="text-purple-600 text-xs font-bold">{subscriberCount}</Text>
         </View>
       </View>
 
@@ -172,7 +172,7 @@ export default function NotificationsAdminScreen({
         {/* Send Notification Card */}
         <View className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
           <View className="flex-row items-center gap-2 mb-4">
-            <Bell size={20} color="#4F46E5" />
+            <Bell size={20} color="#9333EA" />
             <Text className="font-bold text-lg text-gray-900">Enviar Notificación</Text>
           </View>
 
@@ -225,7 +225,7 @@ export default function NotificationsAdminScreen({
               className={`py-4 rounded-xl flex-row items-center justify-center gap-2 ${
                 isSending || !title.trim() || !body.trim()
                   ? 'bg-gray-300'
-                  : 'bg-indigo-600'
+                  : 'bg-purple-600'
               }`}
             >
               {isSending ? (
@@ -245,13 +245,13 @@ export default function NotificationsAdminScreen({
         {/* History */}
         <View className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
           <View className="flex-row items-center gap-2 mb-4">
-            <Clock size={20} color="#4F46E5" />
+            <Clock size={20} color="#9333EA" />
             <Text className="font-bold text-lg text-gray-900">Historial</Text>
           </View>
 
           {isLoadingHistory ? (
             <View className="py-8 items-center">
-              <ActivityIndicator color="#4F46E5" />
+              <ActivityIndicator color="#9333EA" />
             </View>
           ) : history.length === 0 ? (
             <View className="py-8 items-center">
@@ -293,7 +293,7 @@ export default function NotificationsAdminScreen({
                   {item.total_sent > 0 && (
                     <View className="mt-2 bg-gray-200 rounded-full h-1.5 overflow-hidden">
                       <View
-                        className="bg-indigo-600 h-full rounded-full"
+                        className="bg-purple-600 h-full rounded-full"
                         style={{
                           width: `${(item.total_opened / item.total_sent) * 100}%`,
                         }}

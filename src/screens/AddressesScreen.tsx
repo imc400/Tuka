@@ -58,14 +58,22 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
   }, []);
 
   const loadAddresses = async () => {
+    console.log('[AddressesScreen] loadAddresses - Starting for user:', userId);
     setLoading(true);
-    const { addresses: userAddresses, error } = await getUserAddresses(userId);
-    if (error) {
-      Alert.alert('Error', 'No se pudieron cargar las direcciones');
-    } else {
-      setAddresses(userAddresses);
+    try {
+      const { addresses: userAddresses, error } = await getUserAddresses(userId);
+      console.log('[AddressesScreen] loadAddresses - Result:', { count: userAddresses.length, error });
+      if (error) {
+        Alert.alert('Error', 'No se pudieron cargar las direcciones');
+      } else {
+        setAddresses(userAddresses);
+      }
+    } catch (err) {
+      console.error('[AddressesScreen] loadAddresses - Exception:', err);
+      Alert.alert('Error', 'Error inesperado al cargar direcciones');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleRegionChange = (newRegion: string) => {
@@ -180,7 +188,7 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
   if (loading) {
     return (
       <View className="flex-1 bg-gray-50 items-center justify-center">
-        <ActivityIndicator size="large" color="#6366F1" />
+        <ActivityIndicator size="large" color="#9333EA" />
       </View>
     );
   }
@@ -193,7 +201,7 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
           <ChevronLeft size={24} color="#000" />
         </TouchableOpacity>
         <Text className="text-xl font-bold flex-1">Mis Direcciones</Text>
-        <TouchableOpacity onPress={openAddModal} className="bg-indigo-600 p-2 rounded-lg">
+        <TouchableOpacity onPress={openAddModal} className="bg-purple-600 p-2 rounded-lg">
           <Plus size={20} color="white" />
         </TouchableOpacity>
       </View>
@@ -211,7 +219,7 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
             </Text>
             <TouchableOpacity
               onPress={openAddModal}
-              className="bg-indigo-600 px-6 py-3 rounded-lg"
+              className="bg-purple-600 px-6 py-3 rounded-lg"
             >
               <Text className="text-white font-semibold">Agregar Dirección</Text>
             </TouchableOpacity>
@@ -221,7 +229,7 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
             <View
               key={addr.id}
               className={`bg-white p-4 rounded-xl mb-3 ${
-                addr.is_default ? 'border-2 border-indigo-600' : 'border border-gray-200'
+                addr.is_default ? 'border-2 border-purple-600' : 'border border-gray-200'
               }`}
             >
               <View className="flex-row items-start justify-between mb-2">
@@ -229,8 +237,8 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
                   <View className="flex-row items-center gap-2 mb-1">
                     <Text className="font-bold text-gray-900">{addr.label}</Text>
                     {addr.is_default && (
-                      <View className="bg-indigo-100 px-2 py-0.5 rounded">
-                        <Text className="text-indigo-600 text-xs font-semibold">Por defecto</Text>
+                      <View className="bg-purple-100 px-2 py-0.5 rounded">
+                        <Text className="text-purple-600 text-xs font-semibold">Por defecto</Text>
                       </View>
                     )}
                   </View>
@@ -261,13 +269,13 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
                     onPress={() => handleSetDefault(addr.id)}
                     className="flex-1 bg-gray-100 py-2 rounded-lg flex-row items-center justify-center gap-1"
                   >
-                    <Star size={16} color="#6366F1" />
-                    <Text className="text-indigo-600 font-medium text-sm">Por Defecto</Text>
+                    <Star size={16} color="#9333EA" />
+                    <Text className="text-purple-600 font-medium text-sm">Por Defecto</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
                   onPress={() => openEditModal(addr)}
-                  className="flex-1 bg-indigo-600 py-2 rounded-lg"
+                  className="flex-1 bg-purple-600 py-2 rounded-lg"
                 >
                   <Text className="text-white font-medium text-center text-sm">Editar</Text>
                 </TouchableOpacity>
@@ -395,7 +403,7 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
 
             <TouchableOpacity
               onPress={handleSave}
-              className="bg-indigo-600 py-4 rounded-xl mt-4"
+              className="bg-purple-600 py-4 rounded-xl mt-4"
             >
               <Text className="text-white font-bold text-center">
                 {editingAddress ? 'Actualizar' : 'Guardar Dirección'}
@@ -414,7 +422,7 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
             <View className="bg-white rounded-t-3xl">
               <View className="flex-row justify-between items-center p-4 border-b border-gray-200">
                 <TouchableOpacity onPress={() => setShowRegionPicker(false)}>
-                  <Text className="text-indigo-600 text-base">Cancelar</Text>
+                  <Text className="text-purple-600 text-base">Cancelar</Text>
                 </TouchableOpacity>
                 <Text className="font-semibold text-base">Selecciona Región</Text>
                 <TouchableOpacity
@@ -423,7 +431,7 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
                     setShowRegionPicker(false);
                   }}
                 >
-                  <Text className="text-indigo-600 text-base font-semibold">Listo</Text>
+                  <Text className="text-purple-600 text-base font-semibold">Listo</Text>
                 </TouchableOpacity>
               </View>
               <Picker
@@ -450,7 +458,7 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
             <View className="bg-white rounded-t-3xl">
               <View className="flex-row justify-between items-center p-4 border-b border-gray-200">
                 <TouchableOpacity onPress={() => setShowComunaPicker(false)}>
-                  <Text className="text-indigo-600 text-base">Cancelar</Text>
+                  <Text className="text-purple-600 text-base">Cancelar</Text>
                 </TouchableOpacity>
                 <Text className="font-semibold text-base">Selecciona Comuna</Text>
                 <TouchableOpacity
@@ -459,7 +467,7 @@ const AddressesScreen: React.FC<AddressesScreenProps> = ({ userId, onBack }) => 
                     setShowComunaPicker(false);
                   }}
                 >
-                  <Text className="text-indigo-600 text-base font-semibold">Listo</Text>
+                  <Text className="text-purple-600 text-base font-semibold">Listo</Text>
                 </TouchableOpacity>
               </View>
               <Picker

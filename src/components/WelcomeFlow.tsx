@@ -40,7 +40,7 @@ export function WelcomeFlow({ onBrowseAsGuest }: WelcomeFlowProps) {
         onNavigate={(newView) => {
           if (newView === ViewState.SIGNUP) {
             setView('signup');
-          } else if (newView === ViewState.HOME) {
+          } else if (newView === ViewState.WELCOME) {
             // Volver al welcome
             setView('welcome');
           }
@@ -58,7 +58,7 @@ export function WelcomeFlow({ onBrowseAsGuest }: WelcomeFlowProps) {
         onNavigate={(newView) => {
           if (newView === ViewState.LOGIN) {
             setView('login');
-          } else if (newView === ViewState.HOME) {
+          } else if (newView === ViewState.WELCOME) {
             // Volver al welcome
             setView('welcome');
           }

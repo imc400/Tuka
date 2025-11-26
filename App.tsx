@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Image, TouchableOpacity, TextInput, ScrollView, ActivityIndicator, SafeAreaView, StatusBar, Alert, RefreshControl, Platform, Modal } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { generateMarketplaceData } from './src/services/marketplaceService';
-import { addStoreConfig, getRegisteredConfigs, removeStoreConfig } from './src/services/shopifyService';
+import { addStoreConfig, getRegisteredConfigs, removeStoreConfig, fetchProductById, getStoreConfigByDomain } from './src/services/shopifyService';
 import { Store, Product, CartItem, ViewState, ProductVariant } from './src/types';
 import {
   ShoppingBag,
@@ -22,10 +22,11 @@ import {
   ShieldCheck,
   Globe,
   LogOut,
-  FlaskConical
+  FlaskConical,
+  X
 } from 'lucide-react-native';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
-import { formatCLP } from './src/utils/currency';
+import { formatCLP, calculateDiscount, isOnSale } from './src/utils/currency';
 import { ImageGallery } from './src/components/ImageGallery';
 import { VariantSelector } from './src/components/VariantSelector';
 import { ShippingSection } from './src/components/ShippingSection';
@@ -67,7 +68,12 @@ import {
   configureNotifications,
   registerForPushNotifications
 } from './src/services/pushNotificationService';
+import * as Notifications from 'expo-notifications';
 import { configureGoogleSignIn } from './src/services/authService';
+import { CollectionsMenu } from './src/components/CollectionsMenu';
+import { filterProductsByCollection } from './src/services/collectionsService';
+import { ProductDetailView } from './src/components/ProductDetailView';
+import { NotificationsDropdown } from './src/components/NotificationsDropdown';
 
 // --- Styled Components (NativeWind) ---
 // In NativeWind 4, we can use className directly, but sometimes styled() is useful. 
@@ -116,14 +122,14 @@ const BottomNav = ({ currentView, onChangeView, cartCount }: { currentView: View
           className="items-center gap-1 w-16"
         >
           <View className="relative">
-            <item.icon size={24} color={currentView === item.id ? '#4F46E5' : '#9CA3AF'} strokeWidth={currentView === item.id ? 2.5 : 2} />
+            <item.icon size={24} color={currentView === item.id ? '#9333EA' : '#9CA3AF'} strokeWidth={currentView === item.id ? 2.5 : 2} />
             {item.badge ? (
               <View className="absolute -top-2 -right-2 bg-red-500 px-1.5 py-0.5 rounded-full border-2 border-white">
                 <Text className="text-white text-[10px] font-bold">{item.badge}</Text>
               </View>
             ) : null}
           </View>
-          <Text className={`text-[10px] font-medium ${currentView === item.id ? 'text-indigo-600' : 'text-gray-400'}`}>{item.label}</Text>
+          <Text className={`text-[10px] font-medium ${currentView === item.id ? 'text-purple-600' : 'text-gray-400'}`}>{item.label}</Text>
         </TouchableOpacity>
       ))}
     </View>
@@ -146,6 +152,9 @@ function AppContent() {
   const [subscriptions, setSubscriptions] = useState<string[]>([]);
   const [storeSearchQuery, setStoreSearchQuery] = useState('');
   const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
+  const [collectionProducts, setCollectionProducts] = useState<Product[]>([]);
+  const [loadingCollection, setLoadingCollection] = useState(false);
   const [selectedStoreForNotifications, setSelectedStoreForNotifications] = useState<{ id: string; name: string } | null>(null);
 
   // Toasts are simplified to Alerts for now, or custom view overlay
@@ -201,6 +210,133 @@ function AppContent() {
     } else {
       console.warn('⚠️  [App] EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID no está configurado en .env.local');
     }
+  }, []);
+
+  // Referencia para acceder al estado actualizado de stores en el listener
+  const storesRef = React.useRef(stores);
+  useEffect(() => {
+    storesRef.current = stores;
+  }, [stores]);
+
+  // Manejar cuando el usuario toca una notificación push
+  useEffect(() => {
+    // Listener para cuando el usuario toca una notificación
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener(
+      async (response) => {
+        const data = response.notification.request.content.data;
+        console.log('🔔 [App] Notification tapped with data:', JSON.stringify(data));
+
+        if (!data) {
+          console.log('🔔 [App] No data in notification');
+          return;
+        }
+
+        const { type, storeId, collectionHandle, productId } = data as {
+          type?: string;
+          storeId?: string;
+          collectionHandle?: string;
+          productId?: string;
+        };
+
+        console.log('🔔 [App] Parsed notification data:', { type, storeId, collectionHandle, productId });
+
+        // Esperar a que los stores estén cargados (con retry)
+        let currentStores = storesRef.current;
+        let attempts = 0;
+        while (currentStores.length === 0 && attempts < 5) {
+          console.log(`⏳ [App] Waiting for stores to load... attempt ${attempts + 1}`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          currentStores = storesRef.current;
+          attempts++;
+        }
+
+        if (currentStores.length === 0) {
+          console.warn('❌ [App] Stores still not loaded after waiting');
+          return;
+        }
+
+        console.log(`🔔 [App] Stores loaded: ${currentStores.length} stores available`);
+
+        // Buscar la tienda
+        const targetStore = currentStores.find(
+          (s) => s.shopifyConfig?.domain === storeId || s.id === `real-${storeId}`
+        );
+
+        if (!targetStore) {
+          console.warn('❌ [App] Store not found for notification:', storeId);
+          console.log('Available stores:', currentStores.map(s => s.shopifyConfig?.domain || s.id));
+          return;
+        }
+
+        console.log('🏪 [App] Navigating to store:', targetStore.name);
+
+        // Navegar según el tipo de notificación
+        if (type === 'collection' && collectionHandle) {
+          // Navegar a la tienda y seleccionar la colección
+          setSelectedStore(targetStore);
+          setView(ViewState.STORE_DETAIL);
+
+          // Pequeño delay para asegurar que la vista esté montada
+          setTimeout(() => {
+            handleCollectionSelect(collectionHandle);
+            console.log('📁 [App] Collection selected:', collectionHandle);
+          }, 500);
+
+        } else if (type === 'product' && productId) {
+          // Navegar directamente al producto
+          console.log('🔔 [App] Looking for product:', productId);
+          console.log('🔔 [App] Store products count:', targetStore.products?.length);
+
+          // Primero intentar encontrar el producto en memoria
+          let targetProduct = targetStore.products?.find((p) => p.id === productId);
+
+          if (targetProduct) {
+            setSelectedStore(targetStore);
+            setSelectedProduct(targetProduct);
+            setView(ViewState.PRODUCT_DETAIL);
+            console.log('📦 [App] Product opened from memory:', targetProduct.name);
+          } else {
+            // Producto no en memoria - cargarlo dinámicamente desde Shopify
+            console.log('🔄 [App] Product not in memory, fetching from Shopify...');
+
+            // Obtener config de la tienda
+            const storeConfig = targetStore.shopifyConfig || await getStoreConfigByDomain(storeId!);
+
+            if (storeConfig) {
+              const fetchedProduct = await fetchProductById(storeConfig, productId);
+
+              if (fetchedProduct) {
+                setSelectedStore(targetStore);
+                setSelectedProduct(fetchedProduct);
+                setView(ViewState.PRODUCT_DETAIL);
+                console.log('📦 [App] Product fetched and opened:', fetchedProduct.name);
+              } else {
+                // Producto no encontrado en Shopify - ir a la tienda
+                console.warn('⚠️ [App] Product not found in Shopify, going to store');
+                setSelectedStore(targetStore);
+                setView(ViewState.STORE_DETAIL);
+              }
+            } else {
+              // No se pudo obtener config - ir a la tienda
+              console.warn('⚠️ [App] Could not get store config, going to store');
+              setSelectedStore(targetStore);
+              setView(ViewState.STORE_DETAIL);
+            }
+          }
+
+        } else {
+          // Tipo general o desconocido - ir a la tienda
+          setSelectedStore(targetStore);
+          setView(ViewState.STORE_DETAIL);
+          console.log('🏠 [App] General notification - going to store');
+        }
+      }
+    );
+
+    // Limpiar listener al desmontar
+    return () => {
+      responseSubscription.remove();
+    };
   }, []);
 
   // Cargar suscripciones del usuario cuando inicie sesión
@@ -269,11 +405,13 @@ function AppContent() {
   const loadDefaultAddress = async () => {
     if (!user) return;
 
+    console.log('[App] loadDefaultAddress - Starting for user:', user.id);
     const { address: defaultAddr, error } = await getDefaultAddress(user.id);
+    console.log('[App] loadDefaultAddress - Result:', { hasAddress: !!defaultAddr, error });
 
     if (defaultAddr) {
       // Usuario tiene dirección guardada - usar esa
-      console.log('[App] Loading default address for user:', user.id);
+      console.log('[App] Loading default address for user:', user.id, defaultAddr);
 
       if (defaultAddr.recipient_name) {
         setFullName(defaultAddr.recipient_name);
@@ -287,11 +425,18 @@ function AppContent() {
         setAddress(fullAddress);
       }
 
-      if (defaultAddr.city) setCity(defaultAddr.city);
-
+      // IMPORTANTE: Cargar región primero (esto carga las comunas disponibles)
+      // y LUEGO establecer la ciudad/comuna para que no se borre
       if (defaultAddr.region) {
         setRegion(defaultAddr.region);
-        handleRegionChange(defaultAddr.region);
+        const comunas = getComunasByRegion(defaultAddr.region);
+        setAvailableComunas(comunas);
+      }
+
+      // Establecer ciudad DESPUÉS de cargar las comunas
+      if (defaultAddr.city) {
+        console.log('[App] Setting city to:', defaultAddr.city);
+        setCity(defaultAddr.city);
       }
 
       if (defaultAddr.zip_code) setZipCode(defaultAddr.zip_code);
@@ -371,7 +516,34 @@ function AppContent() {
   const goToStore = (store: Store) => {
     setSelectedStore(store);
     setProductSearchQuery(''); // Limpiar búsqueda de productos al entrar a una tienda
+    setSelectedCollection(null); // Limpiar colección seleccionada
+    setCollectionProducts([]); // Limpiar productos de colección
     setView(ViewState.STORE_DETAIL);
+  };
+
+  // Handle collection selection
+  const handleCollectionSelect = async (collectionHandle: string | null) => {
+    setSelectedCollection(collectionHandle);
+
+    if (!collectionHandle || !selectedStore?.shopifyConfig) {
+      setCollectionProducts([]);
+      return;
+    }
+
+    setLoadingCollection(true);
+    try {
+      const filtered = await filterProductsByCollection(
+        selectedStore.shopifyConfig,
+        collectionHandle,
+        selectedStore.products || []
+      );
+      setCollectionProducts(filtered);
+    } catch (error) {
+      console.error('Error filtering by collection:', error);
+      setCollectionProducts([]);
+    } finally {
+      setLoadingCollection(false);
+    }
   };
 
   const goToProduct = (product: Product) => {
@@ -475,22 +647,52 @@ function AppContent() {
   };
 
   const updateQuantity = async (productId: string, delta: number, variantId?: string) => {
-    if (!user) {
-      // Usuario no logueado - actualizar en memoria
-      setCart(prev => prev.map(item => {
-        if (item.id === productId && (!variantId || item.selectedVariant?.id === variantId)) {
-          return { ...item, quantity: Math.max(0, item.quantity + delta) };
+    console.log('[Cart] updateQuantity called:', { productId, delta, variantId });
+    try {
+      if (!user) {
+        // Usuario no logueado - actualizar en memoria
+        setCart(prev => prev.map(item => {
+          if (item.id === productId && (!variantId || item.selectedVariant?.id === variantId)) {
+            return { ...item, quantity: Math.max(0, item.quantity + delta) };
+          }
+          return item;
+        }).filter(item => item.quantity > 0));
+      } else {
+        // Usuario logueado - actualizar en DB
+        const item = cart.find(i => i.id === productId && (!variantId || i.selectedVariant?.id === variantId));
+        if (item) {
+          const newQuantity = item.quantity + delta;
+          console.log('[Cart] Updating quantity:', { currentQuantity: item.quantity, newQuantity });
+          const result = await cartService.updateCartItemQuantity(user.id, productId, variantId || null, newQuantity);
+          if (result.error) {
+            console.error('[Cart] Error updating quantity:', result.error);
+          }
+          await loadCart();
         }
-        return item;
-      }).filter(item => item.quantity > 0));
-    } else {
-      // Usuario logueado - actualizar en DB
-      const item = cart.find(i => i.id === productId && (!variantId || i.selectedVariant?.id === variantId));
-      if (item) {
-        const newQuantity = item.quantity + delta;
-        await cartService.updateCartItemQuantity(user.id, productId, variantId || null, newQuantity);
+      }
+    } catch (error) {
+      console.error('[Cart] Exception in updateQuantity:', error);
+    }
+  };
+
+  const removeFromCart = async (productId: string, variantId?: string) => {
+    console.log('[Cart] removeFromCart called:', { productId, variantId });
+    try {
+      if (!user) {
+        // Usuario no logueado - remover de memoria
+        setCart(prev => prev.filter(item =>
+          !(item.id === productId && (!variantId || item.selectedVariant?.id === variantId))
+        ));
+      } else {
+        // Usuario logueado - remover de DB
+        const result = await cartService.removeFromCart(user.id, productId, variantId || null);
+        if (result.error) {
+          console.error('[Cart] Error removing from cart:', result.error);
+        }
         await loadCart();
       }
+    } catch (error) {
+      console.error('[Cart] Exception in removeFromCart:', error);
     }
   };
 
@@ -532,6 +734,7 @@ function AppContent() {
 
     // Validar que se hayan seleccionado envíos
     const shippingValidation = validateShippingSelection(cart, selectedShippingRates);
+
     if (!shippingValidation.valid) {
       Alert.alert(
         'Selecciona métodos de envío',
@@ -740,40 +943,44 @@ function AppContent() {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor="#4F46E5"
-          colors={['#4F46E5']}
+          tintColor="#9333EA"
+          colors={['#9333EA']}
         />
       }
     >
-      <View className="px-6 py-8 bg-indigo-600 rounded-b-[40px] shadow-xl mb-6">
-        <View className="flex-row justify-between items-start mb-4">
-          <View>
-            <Text className="text-indigo-100 text-sm font-medium mb-1">Bienvenido a</Text>
-            <Text className="text-3xl font-bold text-white">ShopUnite</Text>
-          </View>
-          <View className="bg-white/20 p-2 rounded-full">
-             <Bell color="white" size={20} />
-             {subscriptions.length > 0 && <View className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full" />}
-          </View>
-        </View>
-        <Text className="text-indigo-100 text-sm leading-relaxed">
-          {subscribedStores.length > 0
-            ? `Tienes ${subscribedStores.length} ${subscribedStores.length === 1 ? 'tienda favorita' : 'tiendas favoritas'}`
-            : 'Descubre y suscríbete a tus tiendas favoritas'}
-        </Text>
+      {/* Header simple con isotipo+logo y notificaciones */}
+      <View className="flex-row justify-between items-center pr-4 pt-3 pb-2 bg-white border-b border-gray-100">
+        <Image
+          source={require('./assets/grumo-header-logo.png')}
+          style={{ width: 120, height: 28, marginLeft: 16 }}
+          resizeMode="contain"
+        />
+        <NotificationsDropdown
+          onNavigateToStore={(storeId) => {
+            const store = stores.find(s => s.id === `real-${storeId}` || s.id === storeId);
+            if (store) goToStore(store);
+          }}
+          onNavigateToProduct={(productId, storeId) => {
+            const store = stores.find(s => s.id === `real-${storeId}` || s.id === storeId);
+            if (store) {
+              const product = store.products?.find(p => p.id === productId || p.id.includes(productId));
+              if (product) goToProduct(product, store);
+            }
+          }}
+        />
       </View>
 
-      <View className="px-6 mb-24">
+      <View className="px-6 pt-4 mb-24">
         {subscribedStores.length === 0 ? (
           <View className="bg-white rounded-2xl p-8 items-center shadow-sm border border-gray-100">
             <StoreIcon size={48} color="#9CA3AF" strokeWidth={1.5} />
             <Text className="font-bold text-gray-900 text-lg mt-4 mb-2">No tienes tiendas suscritas</Text>
             <Text className="text-gray-500 text-sm text-center mb-6">
-              Explora tiendas y suscríbete para recibir notificaciones de nuevos productos y ofertas
+              Explora tiendas y suscríbete para recibir notificaciones de nuevos productos y ofertas. Es totalmente gratis.
             </Text>
             <TouchableOpacity
               onPress={() => setView(ViewState.EXPLORE)}
-              className="bg-indigo-600 px-6 py-3 rounded-xl"
+              className="bg-purple-600 px-6 py-3 rounded-xl"
             >
               <Text className="text-white font-bold">Explorar Tiendas</Text>
             </TouchableOpacity>
@@ -783,7 +990,7 @@ function AppContent() {
             <View className="flex-row items-center justify-between mb-4">
               <Text className="font-bold text-gray-900 text-lg">Mis Tiendas</Text>
               <TouchableOpacity onPress={() => setView(ViewState.EXPLORE)}>
-                <Text className="text-xs text-indigo-600 font-semibold">Explorar más</Text>
+                <Text className="text-xs text-purple-600 font-semibold">Explorar más</Text>
               </TouchableOpacity>
             </View>
 
@@ -801,7 +1008,7 @@ function AppContent() {
               />
               {/* Badge de cantidad de productos */}
               <View className="absolute top-3 right-3 bg-white/90 px-3 py-1.5 rounded-full shadow-lg">
-                <Text className="text-indigo-600 text-xs font-bold">
+                <Text className="text-purple-600 text-xs font-bold">
                   {store.products?.length || 0} productos
                 </Text>
               </View>
@@ -827,7 +1034,7 @@ function AppContent() {
             </View>
             <View className="p-4">
                <Text className="text-gray-500 text-sm mb-3" numberOfLines={2}>
-                 {store.description || 'Tienda verificada en ShopUnite'}
+                 {store.description || 'Tienda verificada en Grumo'}
                </Text>
                {store.products && store.products.length > 0 ? (
                  <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row gap-2">
@@ -877,25 +1084,37 @@ function AppContent() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#4F46E5"
-            colors={['#4F46E5']}
+            tintColor="#9333EA"
+            colors={['#9333EA']}
           />
         }
       >
-        <View className="px-6 py-8 bg-indigo-600 rounded-b-[40px] shadow-xl mb-6">
-          <View className="mb-4">
-            <Text className="text-indigo-100 text-sm font-medium mb-1">Descubre</Text>
-            <Text className="text-3xl font-bold text-white">Todas las Tiendas</Text>
-          </View>
-          <Text className="text-indigo-100 text-sm leading-relaxed">
-            {stores.length} {stores.length === 1 ? 'tienda disponible' : 'tiendas disponibles'}
-          </Text>
+        {/* Header simple con isotipo+logo y notificaciones */}
+        <View className="flex-row justify-between items-center pr-4 pt-3 pb-2 bg-white border-b border-gray-100">
+          <Image
+            source={require('./assets/grumo-header-logo.png')}
+            style={{ width: 120, height: 28, marginLeft: 16 }}
+            resizeMode="contain"
+          />
+          <NotificationsDropdown
+            onNavigateToStore={(storeId) => {
+              const store = stores.find(s => s.id === `real-${storeId}` || s.id === storeId);
+              if (store) goToStore(store);
+            }}
+            onNavigateToProduct={(productId, storeId) => {
+              const store = stores.find(s => s.id === `real-${storeId}` || s.id === storeId);
+              if (store) {
+                const product = store.products?.find(p => p.id === productId || p.id.includes(productId));
+                if (product) goToProduct(product, store);
+              }
+            }}
+          />
         </View>
 
-        <View className="px-6 mb-24">
+        <View className="px-6 pt-4 mb-24">
           <View className="flex-row items-center justify-between mb-4">
-            <Text className="font-bold text-gray-900 text-lg">Explorar Tiendas</Text>
-            <Text className="text-xs text-gray-500">{subscriptions.length} suscripciones</Text>
+            <Text className="font-bold text-gray-900 text-xl">Explorar Tiendas</Text>
+            <Text className="text-xs text-gray-500">{stores.length} tiendas</Text>
           </View>
 
           {/* Buscador de tiendas */}
@@ -946,7 +1165,7 @@ function AppContent() {
                   />
                   {/* Badge de cantidad de productos */}
                   <View className="absolute top-3 right-3 bg-white/90 px-3 py-1.5 rounded-full shadow-lg">
-                    <Text className="text-indigo-600 text-xs font-bold">
+                    <Text className="text-purple-600 text-xs font-bold">
                       {store.products?.length || 0} productos
                     </Text>
                   </View>
@@ -977,7 +1196,7 @@ function AppContent() {
                 </View>
                 <View className="p-4">
                   <Text className="text-gray-500 text-sm mb-3" numberOfLines={2}>
-                    {store.description || 'Tienda verificada en ShopUnite'}
+                    {store.description || 'Tienda verificada en Grumo'}
                   </Text>
                   {store.products && store.products.length > 0 ? (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row gap-2">
@@ -1019,11 +1238,16 @@ function AppContent() {
     const storeDomain = selectedStore.id.replace(/^real-/, '');
     const isSubscribed = subscriptions.includes(storeDomain);
 
+    // Determinar qué productos usar (filtrados por colección o todos)
+    const baseProducts = selectedCollection && collectionProducts.length > 0
+      ? collectionProducts
+      : (selectedStore.products || []);
+
     // Filtrar productos por búsqueda
-    const filteredProducts = selectedStore.products?.filter(product =>
+    const filteredProducts = baseProducts.filter(product =>
       product.name.toLowerCase().includes(productSearchQuery.toLowerCase()) ||
       (product.description && product.description.toLowerCase().includes(productSearchQuery.toLowerCase()))
-    ) || [];
+    );
 
     return (
       <View className="flex-1 bg-white">
@@ -1070,9 +1294,9 @@ function AppContent() {
               </View>
               <TouchableOpacity 
                 onPress={() => toggleSubscription(selectedStore.id, selectedStore.name)}
-                className={`items-center justify-center w-14 h-14 rounded-2xl ${isSubscribed ? 'bg-indigo-100' : 'bg-gray-100'}`}
+                className={`items-center justify-center w-14 h-14 rounded-2xl ${isSubscribed ? 'bg-purple-100' : 'bg-gray-100'}`}
               >
-                {isSubscribed ? <BellRing size={24} color="#4F46E5" /> : <Bell size={24} color="#9CA3AF" />}
+                {isSubscribed ? <BellRing size={24} color="#9333EA" /> : <Bell size={24} color="#9CA3AF" />}
               </TouchableOpacity>
             </View>
 
@@ -1102,7 +1326,24 @@ function AppContent() {
               )}
             </View>
 
-            {filteredProducts.length > 0 ? (
+            {/* Menú de colecciones - solo para tiendas reales con dbId */}
+            {selectedStore.isRealStore && selectedStore.dbId && (
+              <CollectionsMenu
+                storeId={selectedStore.dbId}
+                selectedCollection={selectedCollection}
+                onSelectCollection={handleCollectionSelect}
+              />
+            )}
+
+            {/* Indicador de carga de colección */}
+            {loadingCollection && (
+              <View className="py-4 items-center">
+                <ActivityIndicator size="small" color="#9333EA" />
+                <Text className="text-gray-500 text-sm mt-2">Cargando productos...</Text>
+              </View>
+            )}
+
+            {!loadingCollection && filteredProducts.length > 0 ? (
               <View className="flex-row flex-wrap justify-between">
                 {filteredProducts.map(product => {
                   // Get image with fallback
@@ -1111,6 +1352,10 @@ function AppContent() {
                     : product.imagePrompt
                       ? `https://picsum.photos/seed/${product.imagePrompt}/400`
                       : 'https://via.placeholder.com/400x400.png?text=Producto';
+
+                  // Calculate discount
+                  const discount = calculateDiscount(product.price, product.compareAtPrice);
+                  const onSale = isOnSale(product.price, product.compareAtPrice);
 
                   return (
                     <View key={product.id} className="w-[48%] mb-4">
@@ -1125,6 +1370,12 @@ function AppContent() {
                             resizeMode="cover"
                             onError={(e) => console.log('Error loading product image:', product.id)}
                           />
+                          {/* Badge de descuento */}
+                          {discount && (
+                            <View className="absolute top-2 left-2 bg-red-500 px-2 py-1 rounded-lg">
+                              <Text className="text-white text-xs font-bold">-{discount}%</Text>
+                            </View>
+                          )}
                           {/* Botón agregar al carrito */}
                           <TouchableOpacity
                             onPress={(e) => {
@@ -1132,24 +1383,32 @@ function AppContent() {
                               addToCart(product, selectedStore, product.variants?.[0] || null);
                               setToast({ msg: 'Agregado al carrito', type: 'success' });
                             }}
-                            className="absolute bottom-2 right-2 bg-indigo-600 p-2.5 rounded-full shadow-lg"
+                            className="absolute bottom-2 right-2 bg-white p-2.5 rounded-full shadow-lg border border-gray-200"
                             activeOpacity={0.8}
                           >
-                            <Plus size={20} color="white" strokeWidth={2.5} />
+                            <Plus size={20} color="black" strokeWidth={2.5} />
                           </TouchableOpacity>
                         </View>
                         <Text className="font-medium text-gray-900 text-sm" numberOfLines={2}>
                           {product.name || 'Producto sin nombre'}
                         </Text>
-                        <Text className="text-indigo-600 text-sm font-bold mt-1">
-                          {formatCLP(product.price || 0)}
-                        </Text>
+                        {/* Precios con descuento */}
+                        <View className="flex-row items-center gap-2 mt-1">
+                          <Text className={`text-sm font-bold ${onSale ? 'text-red-600' : 'text-purple-600'}`}>
+                            {formatCLP(product.price || 0)}
+                          </Text>
+                          {onSale && product.compareAtPrice && (
+                            <Text className="text-xs text-gray-400 line-through">
+                              {formatCLP(product.compareAtPrice)}
+                            </Text>
+                          )}
+                        </View>
                       </TouchableOpacity>
                     </View>
                   );
                 })}
               </View>
-            ) : (
+            ) : !loadingCollection ? (
               <View className="py-12 items-center">
                 {productSearchQuery.length > 0 ? (
                   <>
@@ -1159,11 +1418,13 @@ function AppContent() {
                       Intenta con otro término de búsqueda
                     </Text>
                   </>
+                ) : selectedCollection ? (
+                  <Text className="text-gray-400 text-sm">No hay productos en esta colección</Text>
                 ) : (
                   <Text className="text-gray-400 text-sm">No hay productos disponibles</Text>
                 )}
               </View>
-            )}
+            ) : null}
           </View>
         </ScrollView>
       </View>
@@ -1175,91 +1436,23 @@ function AppContent() {
       return (
         <View className="flex-1 items-center justify-center bg-white">
           <Text className="text-gray-500">No se encontró el producto</Text>
-          <TouchableOpacity onPress={goBack} className="mt-4 bg-indigo-600 px-6 py-3 rounded-lg">
+          <TouchableOpacity onPress={goBack} className="mt-4 bg-purple-600 px-6 py-3 rounded-lg">
             <Text className="text-white font-bold">Volver</Text>
           </TouchableOpacity>
         </View>
       );
     }
 
-    // Fallback image if no images
-    const fallbackImage = selectedProduct.imagePrompt
-      ? `https://picsum.photos/seed/${selectedProduct.imagePrompt}/800/800`
-      : 'https://via.placeholder.com/800x800.png?text=Producto';
-
-    // Clean description (remove HTML tags if any)
-    const cleanDescription = selectedProduct.description
-      ? selectedProduct.description.replace(/<[^>]*>/g, '').trim() || 'Producto de calidad disponible en nuestra tienda.'
-      : 'Producto de calidad disponible en nuestra tienda.';
-
-    // Get current price (from variant or product)
-    const currentPrice = selectedVariant?.price || selectedProduct.price;
-
     return (
-      <View className="flex-1 bg-white">
-         <ScrollView className="flex-1">
-           {/* Image Gallery with carousel */}
-           <View className="relative">
-              <ImageGallery
-                images={selectedProduct.images || []}
-                fallbackImage={fallbackImage}
-              />
-              <TouchableOpacity
-                onPress={goBack}
-                className="absolute top-12 left-4 bg-white/90 p-3 rounded-full shadow-lg"
-              >
-                <ChevronLeft size={24} color="black" />
-              </TouchableOpacity>
-           </View>
-
-           <View className="bg-white p-6">
-              <View className="w-12 h-1 bg-gray-200 rounded-full mx-auto mb-6" />
-
-              <View className="flex-row justify-between items-start mb-4">
-                <View className="flex-1 pr-4">
-                  <Text className="text-2xl font-bold text-gray-900 mb-2">{selectedProduct.name}</Text>
-                  <Text className="text-indigo-600 font-medium text-sm">de {selectedStore.name}</Text>
-                </View>
-                <View className="items-end">
-                  <Text className="text-xs text-gray-400 mb-1">Precio</Text>
-                  <Text className="text-2xl font-bold text-gray-900">{formatCLP(currentPrice)}</Text>
-                </View>
-              </View>
-
-              {/* Variant Selector */}
-              {selectedProduct.variants && selectedProduct.variants.length > 0 && (
-                <VariantSelector
-                  variants={selectedProduct.variants}
-                  selectedVariant={selectedVariant}
-                  onVariantSelect={setSelectedVariant}
-                />
-              )}
-
-              <View className="border-t border-gray-100 pt-4 mb-6">
-                <Text className="text-xs uppercase font-bold text-gray-400 mb-2">Descripción</Text>
-                <Text className="text-gray-600 text-sm leading-relaxed">
-                  {cleanDescription}
-                </Text>
-              </View>
-
-              {selectedStore.isRealStore && (
-                <View className="bg-green-50 border border-green-200 rounded-lg p-3 mb-6 flex-row items-center gap-2">
-                  <ShieldCheck size={16} color="#16A34A" />
-                  <Text className="text-green-800 text-xs font-medium">Producto verificado de tienda oficial</Text>
-                </View>
-              )}
-
-              <TouchableOpacity
-                onPress={() => addToCart(selectedProduct, selectedStore, selectedVariant)}
-                className="w-full bg-indigo-600 py-4 rounded-xl shadow-lg flex-row items-center justify-center gap-2"
-                disabled={selectedVariant && !selectedVariant.available}
-              >
-                <ShoppingBag size={20} color="white" />
-                <Text className="text-white font-bold text-lg">Agregar al Carrito</Text>
-              </TouchableOpacity>
-           </View>
-         </ScrollView>
-      </View>
+      <ProductDetailView
+        product={selectedProduct}
+        store={selectedStore}
+        selectedVariant={selectedVariant}
+        onVariantSelect={setSelectedVariant}
+        onAddToCart={() => addToCart(selectedProduct, selectedStore, selectedVariant)}
+        onGoBack={goBack}
+        formatCLP={formatCLP}
+      />
     );
   };
 
@@ -1275,7 +1468,7 @@ function AppContent() {
           <Text className="text-lg font-bold text-gray-900 mb-2">Tu carrito está vacío</Text>
           <TouchableOpacity 
             onPress={() => setView(ViewState.HOME)}
-            className="bg-indigo-600 px-6 py-3 rounded-full mt-4"
+            className="bg-purple-600 px-6 py-3 rounded-full mt-4"
           >
             <Text className="text-white font-bold text-sm">Explorar Tiendas</Text>
           </TouchableOpacity>
@@ -1288,14 +1481,22 @@ function AppContent() {
               const cartKey = item.selectedVariant ? `${item.id}-${item.selectedVariant.id}` : item.id;
 
               return (
-              <View key={cartKey} className="bg-white p-4 rounded-xl shadow-sm flex-row gap-4 mb-4 border border-gray-100">
+              <View key={cartKey} className="bg-white p-4 rounded-xl shadow-sm flex-row gap-4 mb-4 border border-gray-100 relative">
+                 {/* Botón X para eliminar */}
+                 <TouchableOpacity
+                   onPress={() => removeFromCart(item.id, item.selectedVariant?.id)}
+                   className="absolute top-2 right-2 z-10 bg-gray-100 rounded-full p-1"
+                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                 >
+                   <X size={14} color="#6B7280" />
+                 </TouchableOpacity>
                  <View className="w-20 h-20 bg-gray-100 rounded-lg overflow-hidden">
                    <Image
                      source={{ uri: item.images && item.images.length > 0 ? item.images[0] : `https://picsum.photos/seed/${item.imagePrompt}/200` }}
                      className="w-full h-full"
                    />
                  </View>
-                 <View className="flex-1 justify-between">
+                 <View className="flex-1 justify-between pr-4">
                    <View>
                      <Text className="font-bold text-gray-900 text-sm" numberOfLines={1}>{item.name}</Text>
                      {item.selectedVariant && (
@@ -1304,7 +1505,7 @@ function AppContent() {
                      <Text className="text-xs text-gray-500 mt-1">Tienda: {item.storeName}</Text>
                    </View>
                    <View className="flex-row justify-between items-end mt-2">
-                      <Text className="font-bold text-indigo-600">{formatCLP(itemPrice * item.quantity)}</Text>
+                      <Text className="font-bold text-gray-900">{formatCLP(itemPrice * item.quantity)}</Text>
                       <View className="flex-row items-center gap-3 bg-gray-50 rounded-lg px-2 py-1">
                         <TouchableOpacity onPress={() => updateQuantity(item.id, -1, item.selectedVariant?.id)}><Minus size={14} color="black" /></TouchableOpacity>
                         <Text className="text-xs font-bold w-4 text-center">{item.quantity}</Text>
@@ -1324,7 +1525,7 @@ function AppContent() {
              </View>
              <View className="flex-row justify-between mb-4">
                <Text className="text-gray-500 text-sm">Envío</Text>
-               <Text className="font-bold text-indigo-600 text-sm">Gratis</Text>
+               <Text className="font-bold text-green-600 text-sm">Gratis</Text>
              </View>
              <View className="flex-row justify-between mb-6">
                <Text className="text-xl font-bold text-gray-900">Total</Text>
@@ -1356,7 +1557,7 @@ function AppContent() {
           </Text>
           <TouchableOpacity 
             onPress={() => { setPaymentSuccess(false); setView(ViewState.HOME); }}
-            className="bg-indigo-600 px-8 py-3 rounded-xl"
+            className="bg-purple-600 px-8 py-3 rounded-xl"
           >
             <Text className="text-white font-bold">Seguir Comprando</Text>
           </TouchableOpacity>
@@ -1456,14 +1657,14 @@ function AppContent() {
                   <View className="bg-white rounded-t-3xl">
                     <View className="flex-row justify-between items-center p-4 border-b border-gray-200">
                       <TouchableOpacity onPress={() => setShowRegionPicker(false)}>
-                        <Text className="text-indigo-600 text-base">Cancelar</Text>
+                        <Text className="text-purple-600 text-base">Cancelar</Text>
                       </TouchableOpacity>
                       <Text className="font-semibold text-base">Selecciona Región</Text>
                       <TouchableOpacity onPress={() => {
                         handleRegionChange(tempRegion);
                         setShowRegionPicker(false);
                       }}>
-                        <Text className="text-indigo-600 text-base font-semibold">Listo</Text>
+                        <Text className="text-purple-600 text-base font-semibold">Listo</Text>
                       </TouchableOpacity>
                     </View>
                     <Picker
@@ -1490,14 +1691,14 @@ function AppContent() {
                   <View className="bg-white rounded-t-3xl">
                     <View className="flex-row justify-between items-center p-4 border-b border-gray-200">
                       <TouchableOpacity onPress={() => setShowComunaPicker(false)}>
-                        <Text className="text-indigo-600 text-base">Cancelar</Text>
+                        <Text className="text-purple-600 text-base">Cancelar</Text>
                       </TouchableOpacity>
                       <Text className="font-semibold text-base">Selecciona Comuna</Text>
                       <TouchableOpacity onPress={() => {
                         setCity(tempComuna);
                         setShowComunaPicker(false);
                       }}>
-                        <Text className="text-indigo-600 text-base font-semibold">Listo</Text>
+                        <Text className="text-purple-600 text-base font-semibold">Listo</Text>
                       </TouchableOpacity>
                     </View>
                     <Picker
@@ -1559,9 +1760,9 @@ function AppContent() {
           {/* Test Payment Button */}
           <TouchableOpacity
             onPress={handleTestPayment}
-            disabled={isProcessingPayment || shippingTotal === 0}
+            disabled={isProcessingPayment || Object.keys(selectedShippingRates).length === 0}
             className={`w-full py-4 rounded-xl flex-row items-center justify-center gap-2 mb-3 ${
-              isProcessingPayment || shippingTotal === 0 ? 'bg-gray-400' : 'bg-orange-500'
+              isProcessingPayment || Object.keys(selectedShippingRates).length === 0 ? 'bg-gray-400' : 'bg-orange-500'
             }`}
           >
             {isProcessingPayment ? (
@@ -1577,9 +1778,9 @@ function AppContent() {
           {/* Real Payment Button */}
           <TouchableOpacity
             onPress={handleRealPayment}
-            disabled={isProcessingPayment || shippingTotal === 0}
+            disabled={isProcessingPayment || Object.keys(selectedShippingRates).length === 0}
             className={`w-full py-4 rounded-xl flex-row items-center justify-center gap-2 mb-10 ${
-              isProcessingPayment || shippingTotal === 0 ? 'bg-gray-400' : 'bg-indigo-600'
+              isProcessingPayment || Object.keys(selectedShippingRates).length === 0 ? 'bg-gray-400' : 'bg-purple-600'
             }`}
           >
             {isProcessingPayment ? (
@@ -1705,7 +1906,7 @@ function AppContent() {
                          });
                          setView(ViewState.NOTIFICATIONS_ADMIN);
                        }}
-                       className="bg-indigo-600 py-2.5 rounded-lg flex-row items-center justify-center gap-2"
+                       className="bg-purple-600 py-2.5 rounded-lg flex-row items-center justify-center gap-2"
                      >
                        <Bell size={16} color="white" />
                        <Text className="text-white font-semibold text-sm">Enviar Notificaciones</Text>
@@ -1786,10 +1987,10 @@ function AppContent() {
                           setToast({ msg: 'Agregado al carrito', type: 'success' });
                         }
                       }}
-                      className="absolute bottom-2 right-2 bg-indigo-600 p-2 rounded-full shadow-lg"
+                      className="absolute bottom-2 right-2 bg-white p-2 rounded-full shadow-lg border border-gray-200"
                       activeOpacity={0.8}
                     >
-                      <Plus size={18} color="white" strokeWidth={2.5} />
+                      <Plus size={18} color="black" strokeWidth={2.5} />
                     </TouchableOpacity>
                   </View>
                   <Text className="text-sm font-bold text-gray-900" numberOfLines={1}>{product.name}</Text>
@@ -1815,7 +2016,7 @@ function AppContent() {
               <View className="w-20 h-20 bg-gray-200 rounded-full items-center justify-center mb-4">
                 <User size={40} color="#9CA3AF" />
               </View>
-              <Text className="font-bold text-lg mb-2">¡Bienvenido a ShopUnite!</Text>
+              <Text className="font-bold text-lg mb-2">¡Bienvenido a Grumo!</Text>
               <Text className="text-sm text-gray-500 text-center mb-6">
                 Inicia sesión para acceder a tu perfil, pedidos y más
               </Text>
@@ -1866,8 +2067,8 @@ function AppContent() {
         <Text className="text-3xl font-bold mb-8 mt-4">Mi Perfil</Text>
 
         <View className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex-row items-center gap-4 mb-6">
-          <View className="w-16 h-16 bg-indigo-100 rounded-full items-center justify-center">
-            <Text className="text-indigo-600 font-bold text-xl">{getUserInitials()}</Text>
+          <View className="w-16 h-16 bg-purple-100 rounded-full items-center justify-center">
+            <Text className="text-purple-600 font-bold text-xl">{getUserInitials()}</Text>
           </View>
           <View className="flex-1">
             <Text className="font-bold text-lg">{profile?.full_name || 'Usuario'}</Text>
@@ -1958,7 +2159,7 @@ function AppContent() {
               <Settings size={18} color="#9CA3AF" />
               <Text className="font-bold text-sm text-gray-400">Acceso Administrativo</Text>
            </TouchableOpacity>
-           <Text className="text-[10px] text-center text-gray-300 mt-2">ShopUnite Admin Console v1.0</Text>
+           <Text className="text-[10px] text-center text-gray-300 mt-2">Grumo Admin Console v1.0</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
