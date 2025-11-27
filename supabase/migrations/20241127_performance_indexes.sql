@@ -131,15 +131,9 @@ END $$;
 
 -- =====================================================
 -- 9. Collections - Browse performance (only if table exists)
+-- Note: store_collections uses store_id (int), not store_domain
+-- Index already exists in original migration, skip here
 -- =====================================================
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'store_collections') THEN
-    CREATE INDEX IF NOT EXISTS idx_collections_store
-    ON store_collections(store_domain, position);
-  END IF;
-END $$;
 
 -- =====================================================
 -- 10. Analyze tables for query planner
