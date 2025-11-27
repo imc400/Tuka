@@ -74,6 +74,7 @@ import { CollectionsMenu } from './src/components/CollectionsMenu';
 import { filterProductsByCollection } from './src/services/collectionsService';
 import { ProductDetailView } from './src/components/ProductDetailView';
 import { NotificationsDropdown } from './src/components/NotificationsDropdown';
+import { trackNotificationClick, trackConversion } from './src/services/notificationAnalyticsService';
 
 // --- Styled Components (NativeWind) ---
 // In NativeWind 4, we can use className directly, but sometimes styled() is useful. 
@@ -239,6 +240,15 @@ function AppContent() {
         };
 
         console.log('🔔 [App] Parsed notification data:', { type, storeId, collectionHandle, productId });
+
+        // Track the notification click for analytics
+        if (storeId) {
+          trackNotificationClick(storeId).then(result => {
+            console.log('📊 [App] Click tracked:', result);
+          }).catch(err => {
+            console.warn('📊 [App] Failed to track click:', err);
+          });
+        }
 
         // Esperar a que los stores estén cargados (con retry)
         let currentStores = storesRef.current;
@@ -785,7 +795,25 @@ function AppContent() {
         console.log('[App] Checkout address saved successfully');
       }
 
-      // 4. Éxito
+      // 4. Track conversions for each store in the cart
+      // Normalizar storeId: el carrito usa "real-domain" pero las notificaciones usan "domain"
+      const storeIds = [...new Set(cart.map(item => item.storeId))];
+      for (const cartStoreId of storeIds) {
+        // Extraer el dominio real (quitar prefijo "real-" si existe)
+        const normalizedStoreId = cartStoreId.startsWith('real-')
+          ? cartStoreId.replace('real-', '')
+          : cartStoreId;
+
+        const storeTotal = cart
+          .filter(item => item.storeId === cartStoreId)
+          .reduce((sum, item) => sum + (item.selectedVariant?.price || item.price) * item.quantity, 0);
+
+        trackConversion(normalizedStoreId, storeTotal, result.transactionId.toString())
+          .then(res => console.log(`📊 [App] Conversion tracked for ${normalizedStoreId}:`, res))
+          .catch(err => console.warn(`📊 [App] Failed to track conversion for ${normalizedStoreId}:`, err));
+      }
+
+      // 5. Éxito
       setCurrentTransactionId(result.transactionId);
       setPaymentSuccess(true);
       clearCart();
@@ -900,6 +928,24 @@ function AppContent() {
             phone,
           });
           console.log('[App] Checkout address saved successfully after real payment');
+        }
+
+        // Track conversions for each store in the cart
+        // Normalizar storeId: el carrito usa "real-domain" pero las notificaciones usan "domain"
+        const storeIds = [...new Set(cart.map(item => item.storeId))];
+        for (const cartStoreId of storeIds) {
+          // Extraer el dominio real (quitar prefijo "real-" si existe)
+          const normalizedStoreId = cartStoreId.startsWith('real-')
+            ? cartStoreId.replace('real-', '')
+            : cartStoreId;
+
+          const storeTotal = cart
+            .filter(item => item.storeId === cartStoreId)
+            .reduce((sum, item) => sum + (item.selectedVariant?.price || item.price) * item.quantity, 0);
+
+          trackConversion(normalizedStoreId, storeTotal, result.transactionId.toString())
+            .then(res => console.log(`📊 [App] Conversion tracked for ${normalizedStoreId}:`, res))
+            .catch(err => console.warn(`📊 [App] Failed to track conversion for ${normalizedStoreId}:`, err));
         }
 
         setPaymentSuccess(true);

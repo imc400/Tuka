@@ -111,10 +111,14 @@ serve(async (req) => {
       })
       .eq('id', transactionId);
 
-    // Si el pago fue aprobado, crear órdenes en Shopify
+    // Si el pago fue aprobado, crear órdenes en Shopify y procesar disbursements
     if (payment.status === 'approved') {
       console.log('Payment approved, creating Shopify orders...');
-      await createShopifyOrders(transactionId, supabaseClient);
+      const orderResults = await createShopifyOrders(transactionId, supabaseClient);
+
+      // Procesar disbursements a las tiendas
+      console.log('Processing disbursements to stores...');
+      await processStoreDisbursements(transactionId, payment, supabaseClient);
     }
 
     return new Response(JSON.stringify({ status: 'processed' }), {
@@ -399,5 +403,184 @@ async function createShopifyOrders(transactionId: number, supabaseClient: any) {
   } catch (error) {
     console.error('Error in createShopifyOrders:', error);
     throw error;
+  }
+}
+
+/**
+ * Procesa los disbursements (transferencias) a las tiendas
+ *
+ * Por cada tienda en la transacción:
+ * 1. Calcula el monto bruto de la venta
+ * 2. Calcula la comisión de Grumo
+ * 3. Calcula el monto neto a transferir
+ * 4. Registra el pago pendiente en store_payments
+ * 5. Si la tienda tiene MP conectado, intenta transferir automáticamente
+ */
+async function processStoreDisbursements(
+  transactionId: number,
+  mpPayment: any,
+  supabaseClient: any
+) {
+  try {
+    // Obtener la transacción
+    const { data: transaction, error: txError } = await supabaseClient
+      .from('transactions')
+      .select('*')
+      .eq('id', transactionId)
+      .single();
+
+    if (txError || !transaction) {
+      throw new Error('Transaction not found for disbursement');
+    }
+
+    const cartItems: CartItem[] = transaction.cart_items;
+
+    // Agrupar items por tienda
+    const itemsByStore: Record<string, CartItem[]> = {};
+    cartItems.forEach((item) => {
+      const cleanStoreDomain = item.storeId.replace(/^real-/, '');
+      if (!itemsByStore[cleanStoreDomain]) {
+        itemsByStore[cleanStoreDomain] = [];
+      }
+      itemsByStore[cleanStoreDomain].push(item);
+    });
+
+    // Obtener tiendas con info de MP
+    const storeDomains = Object.keys(itemsByStore);
+    const { data: stores, error: storesError } = await supabaseClient
+      .from('stores')
+      .select('domain, store_name, mp_user_id, mp_access_token, mp_email, commission_rate')
+      .in('domain', storeDomains);
+
+    if (storesError) {
+      throw new Error('Error fetching stores for disbursement');
+    }
+
+    // Calcular comisión de MP prorrateada
+    // MP cobra su fee del monto total, lo prorrateamos entre las tiendas
+    const totalTransactionAmount = mpPayment.transaction_amount || 0;
+    const mpFeeTotal = mpPayment.fee_details?.reduce(
+      (sum: number, fee: any) => sum + (fee.amount || 0),
+      0
+    ) || 0;
+
+    // Procesar cada tienda
+    const disbursementPromises = stores.map(async (store: any) => {
+      const storeItems = itemsByStore[store.domain];
+      const grossAmount = storeItems.reduce(
+        (sum, item) => sum + item.price * item.quantity,
+        0
+      );
+
+      // Calcular comisión prorrateada de MP
+      const storeRatio = totalTransactionAmount > 0 ? grossAmount / totalTransactionAmount : 0;
+      const mpFeeProrated = Math.round(mpFeeTotal * storeRatio);
+
+      // Calcular comisión de Grumo (default 10%)
+      const commissionRate = store.commission_rate || 0.10;
+      const grumoCommission = Math.round(grossAmount * commissionRate);
+
+      // Monto neto para la tienda
+      const netAmount = grossAmount - grumoCommission;
+
+      // Verificar si ya existe un registro de pago (idempotencia)
+      const { data: existingPayment } = await supabaseClient
+        .from('store_payments')
+        .select('id')
+        .eq('transaction_id', transactionId)
+        .eq('store_domain', store.domain)
+        .limit(1);
+
+      if (existingPayment && existingPayment.length > 0) {
+        console.log(`Payment record already exists for ${store.domain} in transaction ${transactionId}`);
+        return { store: store.domain, skipped: true };
+      }
+
+      // Obtener el shopify_order_id si existe
+      const { data: shopifyOrder } = await supabaseClient
+        .from('shopify_orders')
+        .select('shopify_order_id')
+        .eq('transaction_id', transactionId)
+        .eq('store_domain', store.domain)
+        .limit(1)
+        .single();
+
+      // Determinar estado inicial
+      // Si la tienda tiene MP conectado, intentamos transferir automáticamente
+      // Si no, queda como 'pending' para transferencia manual
+      let status = 'pending';
+      let mpTransferId = null;
+      let mpTransferStatus = null;
+      let transferError = null;
+      let transferredAt = null;
+
+      // Intentar transferencia automática si la tienda tiene MP conectado
+      if (store.mp_access_token && store.mp_user_id) {
+        try {
+          console.log(`Attempting automatic transfer to ${store.domain} (${store.mp_email}): ${netAmount} CLP`);
+
+          // Nota: La transferencia real requiere el scope 'money_transfer' habilitado por MP
+          // Por ahora, registramos como pending y la transferencia se haría manualmente
+          // o con un proceso separado una vez que MP habilite el scope
+
+          // TODO: Implementar transferencia real cuando tengamos el scope habilitado
+          // const transferResult = await transferToMercadoPago(store.mp_access_token, netAmount);
+
+          // Por ahora, marcamos como pending para procesamiento posterior
+          status = 'pending';
+          console.log(`Transfer registered as pending for ${store.domain}`);
+
+        } catch (transferErr: any) {
+          console.error(`Transfer failed for ${store.domain}:`, transferErr);
+          status = 'pending'; // Queda pendiente para retry manual
+          transferError = transferErr.message;
+        }
+      } else {
+        console.log(`Store ${store.domain} not connected to MP, marking as pending for manual transfer`);
+        status = 'pending';
+      }
+
+      // Insertar registro de pago
+      const { error: insertError } = await supabaseClient
+        .from('store_payments')
+        .insert({
+          store_domain: store.domain,
+          transaction_id: transactionId,
+          shopify_order_id: shopifyOrder?.shopify_order_id || null,
+          gross_amount: grossAmount,
+          mp_fee_amount: mpFeeProrated,
+          grumo_commission: grumoCommission,
+          net_amount: netAmount,
+          status,
+          mp_transfer_id: mpTransferId,
+          mp_transfer_status: mpTransferStatus,
+          transfer_error: transferError,
+          transferred_at: transferredAt,
+        });
+
+      if (insertError) {
+        console.error(`Error inserting payment for ${store.domain}:`, insertError);
+        return { store: store.domain, error: insertError.message };
+      }
+
+      console.log(`Payment record created for ${store.domain}: gross=${grossAmount}, commission=${grumoCommission}, net=${netAmount}, status=${status}`);
+
+      return {
+        store: store.domain,
+        grossAmount,
+        grumoCommission,
+        netAmount,
+        status,
+      };
+    });
+
+    const results = await Promise.all(disbursementPromises);
+    console.log('Disbursement results:', results);
+
+    return results;
+  } catch (error) {
+    console.error('Error in processStoreDisbursements:', error);
+    // No lanzamos el error para no fallar el webhook completo
+    // Los pagos quedaron registrados o se pueden procesar manualmente
   }
 }

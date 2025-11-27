@@ -8,7 +8,11 @@ import { supabase } from '../lib/supabase';
 
 export const getRegisteredConfigs = async (): Promise<ShopifyConfig[]> => {
   try {
-    const { data, error } = await supabase.from('stores').select('*');
+    // Only fetch stores that are NOT hidden (is_hidden = false or null)
+    const { data, error } = await supabase
+      .from('stores')
+      .select('*')
+      .or('is_hidden.is.null,is_hidden.eq.false');
     if (error) throw error;
 
     // Map snake_case DB columns to camelCase interface

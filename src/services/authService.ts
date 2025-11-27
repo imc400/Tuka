@@ -281,6 +281,7 @@ export async function signOut(): Promise<{ success: boolean; error?: string }> {
 /**
  * Obtener perfil completo del usuario
  * Incluye email de auth.users
+ * Si no existe perfil, lo crea automáticamente
  */
 export async function getUserProfile(
   userId: string
@@ -288,12 +289,12 @@ export async function getUserProfile(
   try {
     console.log('👤 [AuthService] Obteniendo perfil:', userId);
 
-    // Obtener perfil
+    // Obtener perfil - usar maybeSingle para no lanzar error si no existe
     const { data: profileData, error: profileError } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
     if (profileError) {
       console.error('❌ [AuthService] Error obteniendo perfil:', profileError);
@@ -308,6 +309,47 @@ export async function getUserProfile(
     if (!user) {
       console.error('❌ [AuthService] No se pudo obtener usuario de auth');
       return undefined;
+    }
+
+    // Si no existe perfil, crearlo ahora (para usuarios de Google OAuth)
+    if (!profileData) {
+      console.log('📝 [AuthService] Perfil no existe, creándolo...');
+
+      const newProfile = {
+        id: userId,
+        full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+        phone: null,
+        avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+      };
+
+      const { data: createdProfile, error: createError } = await supabase
+        .from('user_profiles')
+        .insert(newProfile)
+        .select()
+        .single();
+
+      if (createError) {
+        console.error('❌ [AuthService] Error creando perfil:', createError);
+        // Retornar un perfil básico aunque no se haya guardado
+        return {
+          id: userId,
+          full_name: newProfile.full_name,
+          phone: null,
+          avatar_url: newProfile.avatar_url,
+          email: user.email || '',
+          total_orders: 0,
+          total_spent: 0,
+          created_at: new Date().toISOString(),
+          last_active_at: new Date().toISOString(),
+        };
+      }
+
+      console.log('✅ [AuthService] Perfil creado:', createdProfile.full_name);
+
+      return {
+        ...createdProfile,
+        email: user.email || '',
+      };
     }
 
     const profile: UserProfile = {

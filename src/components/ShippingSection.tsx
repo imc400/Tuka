@@ -22,7 +22,7 @@ interface Props {
     address: string;
     city: string;
     region: string;
-    zipCode: string;
+    zipCode?: string; // Opcional en Chile
   };
   onShippingCalculated?: (selectedRates: SelectedShippingRates, total: number) => void;
   autoCalculate?: boolean; // Si true, calcula automáticamente cuando hay dirección completa
@@ -42,13 +42,12 @@ export function ShippingSection({
   // Agrupar items por tienda
   const storeGroups = groupCartItemsByStore(cartItems);
 
-  // Verificar si la dirección está completa
+  // Verificar si la dirección está completa (zipCode es opcional en Chile)
   const isAddressComplete = () => {
     return (
       shippingAddress.address?.trim().length > 0 &&
       shippingAddress.city?.trim().length > 0 &&
-      shippingAddress.region?.trim().length > 0 &&
-      shippingAddress.zipCode?.trim().length > 0
+      shippingAddress.region?.trim().length > 0
     );
   };
 
@@ -61,7 +60,6 @@ export function ShippingSection({
     shippingAddress.address,
     shippingAddress.city,
     shippingAddress.region,
-    shippingAddress.zipCode,
     cartItems.length,
   ]);
 

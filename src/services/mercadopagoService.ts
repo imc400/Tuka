@@ -1,13 +1,18 @@
 /**
  * MercadoPago Service
  * Integración con MercadoPago para procesamiento de pagos
+ *
+ * MODELO: Multi-Payment Marketplace
+ * - Cada tienda recibe su pago directo
+ * - Grumo cobra comisión via application_fee
+ * - Cliente hace N pagos (1 por tienda) en un solo flujo UX
  */
 
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { CartItem } from '../types';
 
-// Tipos
+// Tipos para el modelo original (deprecated)
 export interface MercadoPagoPreference {
   items: Array<{
     id?: string;
@@ -34,7 +39,7 @@ export interface MercadoPagoPreference {
     pending: string;
   };
   auto_return?: 'approved' | 'all';
-  external_reference?: string; // Para identificar la transacción
+  external_reference?: string;
   notification_url?: string;
   metadata?: Record<string, any>;
 }
@@ -44,6 +49,39 @@ export interface MercadoPagoResponse {
   preferenceId?: string;
   initPoint?: string;
   error?: string;
+}
+
+// ============================================
+// TIPOS PARA MULTI-PAYMENT
+// ============================================
+
+export interface StorePaymentPreference {
+  storeDomain: string;
+  storeName: string;
+  preferenceId: string;
+  initPoint: string;
+  amount: number;
+  applicationFee: number;
+  items: CartItem[];
+}
+
+export interface MultiPaymentResponse {
+  success: boolean;
+  mode: 'multi';
+  totalPayments: number;
+  preferences: StorePaymentPreference[];
+  errors?: Array<{ store: string; error: string }>;
+}
+
+export interface MultiPaymentResult {
+  success: boolean;
+  completedPayments: number;
+  totalPayments: number;
+  failedStores: string[];
+  results: Array<{
+    storeDomain: string;
+    status: 'success' | 'cancelled' | 'pending';
+  }>;
 }
 
 /**
@@ -236,4 +274,227 @@ export async function cancelPayment(transactionId: number): Promise<boolean> {
     console.error('Error cancelling payment:', error);
     return false;
   }
+}
+
+// ============================================
+// FUNCIONES MULTI-PAYMENT (NUEVO MODELO)
+// ============================================
+
+/**
+ * Crea múltiples preferencias de pago (1 por tienda)
+ * Este es el nuevo modelo donde cada tienda recibe su pago directo
+ */
+export async function createMultiPaymentPreferences(
+  cartItems: CartItem[],
+  buyerInfo: {
+    name: string;
+    email: string;
+    phone: string;
+  },
+  transactionId: number,
+  shippingCosts: Record<string, { price: number; title: string }>
+): Promise<MultiPaymentResponse | null> {
+  try {
+    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+    const backendUrl = supabaseUrl.replace('/rest/v1', '').replace(/\/$/, '');
+
+    const endpoint = `${backendUrl}/functions/v1/create-multi-payment`;
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        transactionId,
+        cartItems,
+        buyerInfo,
+        shippingCosts,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Error creating multi-payment:', errorData);
+      return null;
+    }
+
+    const data: MultiPaymentResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error in createMultiPaymentPreferences:', error);
+    return null;
+  }
+}
+
+/**
+ * Procesa todos los pagos secuencialmente
+ * Abre el checkout de MP para cada tienda
+ *
+ * @param preferences Lista de preferencias por tienda
+ * @param onProgress Callback para actualizar UI (ej: "Pago 1 de 3")
+ * @returns Resultado del proceso multi-payment
+ */
+export async function processMultiPayments(
+  preferences: StorePaymentPreference[],
+  onProgress?: (current: number, total: number, storeName: string) => void
+): Promise<MultiPaymentResult> {
+  const results: MultiPaymentResult['results'] = [];
+  const failedStores: string[] = [];
+
+  for (let i = 0; i < preferences.length; i++) {
+    const pref = preferences[i];
+
+    // Notificar progreso
+    if (onProgress) {
+      onProgress(i + 1, preferences.length, pref.storeName);
+    }
+
+    try {
+      // Abrir checkout de MP para esta tienda
+      const result = await WebBrowser.openBrowserAsync(pref.initPoint, {
+        dismissButtonStyle: 'close',
+        readerMode: false,
+        enableBarCollapsing: false,
+      });
+
+      if (result.type === 'cancel') {
+        // Usuario canceló este pago
+        results.push({
+          storeDomain: pref.storeDomain,
+          status: 'cancelled',
+        });
+        failedStores.push(pref.storeDomain);
+      } else {
+        // Usuario completó (el estado real lo confirma el webhook)
+        results.push({
+          storeDomain: pref.storeDomain,
+          status: 'pending',
+        });
+      }
+    } catch (error) {
+      console.error(`Error processing payment for ${pref.storeDomain}:`, error);
+      results.push({
+        storeDomain: pref.storeDomain,
+        status: 'cancelled',
+      });
+      failedStores.push(pref.storeDomain);
+    }
+  }
+
+  const completedPayments = results.filter(r => r.status !== 'cancelled').length;
+
+  return {
+    success: completedPayments === preferences.length,
+    completedPayments,
+    totalPayments: preferences.length,
+    failedStores,
+    results,
+  };
+}
+
+/**
+ * Verifica el estado de todos los pagos de una transacción multi-payment
+ */
+export async function checkMultiPaymentStatus(
+  transactionId: number
+): Promise<{
+  status: 'pending' | 'approved' | 'partial' | 'rejected';
+  completedPayments: number;
+  totalPayments: number;
+  stores: Array<{
+    domain: string;
+    status: string;
+    amount: number;
+  }>;
+}> {
+  try {
+    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+    const backendUrl = supabaseUrl.replace('/rest/v1', '').replace(/\/$/, '');
+
+    const response = await fetch(
+      `${backendUrl}/functions/v1/check-multi-payment-status?transaction_id=${transactionId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      return {
+        status: 'pending',
+        completedPayments: 0,
+        totalPayments: 0,
+        stores: [],
+      };
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error checking multi-payment status:', error);
+    return {
+      status: 'pending',
+      completedPayments: 0,
+      totalPayments: 0,
+      stores: [],
+    };
+  }
+}
+
+/**
+ * Determina si se debe usar multi-payment o single-payment
+ * Multi-payment se usa cuando hay items de múltiples tiendas
+ */
+export function shouldUseMultiPayment(cartItems: CartItem[]): boolean {
+  const uniqueStores = new Set(
+    cartItems.map((item) => item.storeId.replace(/^real-/, ''))
+  );
+  return uniqueStores.size > 1;
+}
+
+/**
+ * Obtiene el resumen de pagos por tienda del carrito
+ */
+export function getPaymentSummaryByStore(
+  cartItems: CartItem[],
+  shippingCosts: Record<string, { price: number; title: string }>
+): Array<{
+  storeId: string;
+  storeName: string;
+  itemsTotal: number;
+  shippingCost: number;
+  total: number;
+  itemCount: number;
+}> {
+  const storeMap = new Map<string, {
+    storeId: string;
+    storeName: string;
+    itemsTotal: number;
+    itemCount: number;
+  }>();
+
+  cartItems.forEach((item) => {
+    const storeId = item.storeId.replace(/^real-/, '');
+    const existing = storeMap.get(storeId);
+
+    if (existing) {
+      existing.itemsTotal += item.price * item.quantity;
+      existing.itemCount += item.quantity;
+    } else {
+      storeMap.set(storeId, {
+        storeId,
+        storeName: item.storeName || storeId,
+        itemsTotal: item.price * item.quantity,
+        itemCount: item.quantity,
+      });
+    }
+  });
+
+  return Array.from(storeMap.values()).map((store) => ({
+    ...store,
+    shippingCost: shippingCosts[store.storeId]?.price || 0,
+    total: store.itemsTotal + (shippingCosts[store.storeId]?.price || 0),
+  }));
 }

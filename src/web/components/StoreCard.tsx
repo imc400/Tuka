@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { ExternalLink, RefreshCw, Edit2, Trash2, LayoutDashboard } from 'lucide-react';
+import { ExternalLink, RefreshCw, Edit2, Trash2, LayoutDashboard, Eye, EyeOff } from 'lucide-react';
 import type { Store } from '../types';
 
 interface StoreCardProps {
@@ -16,6 +16,7 @@ interface StoreCardProps {
   onSync: (store: Store) => void;
   onEdit: (store: Store) => void;
   onDelete: (id: number) => void;
+  onToggleVisibility: (store: Store) => void;
 }
 
 export default function StoreCard({
@@ -26,11 +27,12 @@ export default function StoreCard({
   onSync,
   onEdit,
   onDelete,
+  onToggleVisibility,
 }: StoreCardProps) {
   return (
     <div
       className={`bg-white rounded-xl p-5 shadow-sm border-2 ${
-        isEditing ? 'border-amber-400' : 'border-gray-200'
+        isEditing ? 'border-amber-400' : store.is_hidden ? 'border-gray-300 opacity-60' : 'border-gray-200'
       } flex flex-col sm:flex-row gap-6 items-start sm:items-center hover:shadow-md transition-all`}
     >
       {/* Preview Logo/Banner/Color */}
@@ -102,6 +104,11 @@ export default function StoreCard({
           >
             {store.admin_api_token ? 'Admin API' : 'Falta Admin API'}
           </span>
+          {store.is_hidden && (
+            <span className="px-2 py-1 rounded font-semibold bg-gray-200 text-gray-600">
+              Oculta en app
+            </span>
+          )}
         </div>
       </div>
 
@@ -125,6 +132,24 @@ export default function StoreCard({
           className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors text-sm font-medium"
         >
           <Edit2 size={16} /> Editar
+        </button>
+        <button
+          onClick={() => onToggleVisibility(store)}
+          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
+            store.is_hidden
+              ? 'bg-green-50 text-green-700 hover:bg-green-100'
+              : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          {store.is_hidden ? (
+            <>
+              <Eye size={16} /> Mostrar
+            </>
+          ) : (
+            <>
+              <EyeOff size={16} /> Ocultar
+            </>
+          )}
         </button>
         <button
           onClick={() => onDelete(store.id)}

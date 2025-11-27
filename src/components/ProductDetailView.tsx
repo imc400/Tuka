@@ -4,9 +4,11 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, useWindowDimensions } from 'react-native';
 import {
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
   ShoppingBag,
   ShieldCheck,
   Star,
@@ -17,6 +19,7 @@ import {
   Ruler,
   Sparkles,
 } from 'lucide-react-native';
+import RenderHtml from 'react-native-render-html';
 import type { Product, ProductVariant, Store, ProductOption } from '../types';
 import { ImageGallery } from './ImageGallery';
 
@@ -50,6 +53,8 @@ export function ProductDetailView({
   formatCLP,
 }: Props) {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const { width: screenWidth } = useWindowDimensions();
 
   // Fallback image if no images
   const fallbackImage = product.imagePrompt
@@ -97,10 +102,84 @@ export function ProductDetailView({
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Clean description (remove HTML tags if using plain description)
+  // Use HTML description if available, fallback to plain text
+  const descriptionHtml = product.descriptionHtml || product.description || '';
+  const hasDescription = descriptionHtml.trim().length > 0;
+
+  // Fallback plain description for when there's no HTML
   const cleanDescription = product.description
     ? product.description.replace(/<[^>]*>/g, '').trim() || 'Producto de calidad disponible en nuestra tienda.'
     : 'Producto de calidad disponible en nuestra tienda.';
+
+  // HTML rendering styles for description
+  const htmlTagsStyles = {
+    body: {
+      color: '#4B5563', // gray-600
+      fontSize: 14,
+      lineHeight: 22,
+    },
+    h1: {
+      fontSize: 20,
+      fontWeight: 'bold' as const,
+      color: '#1F2937', // gray-800
+      marginTop: 16,
+      marginBottom: 8,
+    },
+    h2: {
+      fontSize: 18,
+      fontWeight: 'bold' as const,
+      color: '#1F2937',
+      marginTop: 14,
+      marginBottom: 6,
+    },
+    h3: {
+      fontSize: 16,
+      fontWeight: '600' as const,
+      color: '#374151', // gray-700
+      marginTop: 12,
+      marginBottom: 4,
+    },
+    h4: {
+      fontSize: 15,
+      fontWeight: '600' as const,
+      color: '#374151',
+      marginTop: 10,
+      marginBottom: 4,
+    },
+    p: {
+      marginTop: 8,
+      marginBottom: 8,
+    },
+    ul: {
+      marginTop: 8,
+      marginBottom: 8,
+      paddingLeft: 16,
+    },
+    ol: {
+      marginTop: 8,
+      marginBottom: 8,
+      paddingLeft: 16,
+    },
+    li: {
+      marginTop: 4,
+      marginBottom: 4,
+    },
+    strong: {
+      fontWeight: 'bold' as const,
+      color: '#1F2937',
+    },
+    b: {
+      fontWeight: 'bold' as const,
+      color: '#1F2937',
+    },
+    em: {
+      fontStyle: 'italic' as const,
+    },
+    a: {
+      color: '#7C3AED', // purple-600
+      textDecorationLine: 'underline' as const,
+    },
+  };
 
   // Render visual option selector (Color, Size, etc.)
   const renderOptionSelector = (option: ProductOption) => {
@@ -276,11 +355,43 @@ export function ProductDetailView({
             </View>
           )}
 
-          {/* Description */}
-          <View className="border-t border-gray-100 pt-4 mb-4">
-            <Text className="text-xs uppercase font-bold text-gray-400 mb-2">Descripción</Text>
-            <Text className="text-gray-600 text-sm leading-relaxed">{cleanDescription}</Text>
-          </View>
+          {/* Description - Collapsible */}
+          {hasDescription && (
+            <View className="border-t border-gray-100 pt-4 mb-4">
+              <TouchableOpacity
+                onPress={() => setDescriptionExpanded(!descriptionExpanded)}
+                className="flex-row items-center justify-between"
+              >
+                <Text className="text-sm font-bold text-gray-800">Descripción</Text>
+                <View className="flex-row items-center">
+                  <Text className="text-xs text-purple-600 mr-1">
+                    {descriptionExpanded ? 'Ver menos' : 'Ver más'}
+                  </Text>
+                  {descriptionExpanded ? (
+                    <ChevronUp size={16} color="#7C3AED" />
+                  ) : (
+                    <ChevronDown size={16} color="#7C3AED" />
+                  )}
+                </View>
+              </TouchableOpacity>
+
+              {descriptionExpanded && (
+                <View className="mt-3">
+                  {descriptionHtml.includes('<') ? (
+                    <RenderHtml
+                      contentWidth={screenWidth - 48}
+                      source={{ html: descriptionHtml }}
+                      tagsStyles={htmlTagsStyles}
+                    />
+                  ) : (
+                    <Text className="text-gray-600 text-sm leading-relaxed">
+                      {cleanDescription}
+                    </Text>
+                  )}
+                </View>
+              )}
+            </View>
+          )}
 
           {/* Product Type / Category */}
           {product.productType && (
@@ -305,20 +416,6 @@ export function ProductDetailView({
                   </View>
                 </View>
               ))}
-            </View>
-          )}
-
-          {/* Tags */}
-          {product.tags && product.tags.length > 0 && (
-            <View className="border-t border-gray-100 pt-4 mb-4">
-              <Text className="text-xs uppercase font-bold text-gray-400 mb-2">Etiquetas</Text>
-              <View className="flex-row flex-wrap gap-2">
-                {product.tags.slice(0, 8).map((tag, index) => (
-                  <View key={index} className="bg-gray-100 px-3 py-1 rounded-full">
-                    <Text className="text-xs text-gray-600">{tag}</Text>
-                  </View>
-                ))}
-              </View>
             </View>
           )}
 

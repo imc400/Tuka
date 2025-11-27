@@ -1,9 +1,10 @@
 /**
- * Shipping Tab Component
+ * Shipping Tab Component - Advanced Version
  *
- * Permite configurar las tarifas de envío de la tienda
- * - Tarifas planas (sincronizadas desde Shopify)
- * - Tarifas por zona (configuración manual)
+ * Permite configurar las tarifas de envío de la tienda con:
+ * - Múltiples métodos de envío por zona (Estándar, Express, Same Day)
+ * - Tarifas por peso y/o precio
+ * - Envío gratis con condiciones combinables
  */
 
 import React, { useState, useEffect } from 'react';
@@ -21,6 +22,11 @@ import {
   Trash2,
   DollarSign,
   Package,
+  Clock,
+  Scale,
+  Zap,
+  Gift,
+  Settings,
 } from 'lucide-react';
 import { supabaseWeb as supabase } from '../../../lib/supabaseWeb';
 import type { Store } from '../../types';
@@ -41,6 +47,33 @@ interface ShippingConfig {
   is_active: boolean;
 }
 
+interface ShippingMethod {
+  id?: string;
+  zone_id?: string;
+  name: string;
+  code: string;
+  description?: string;
+  estimated_delivery: string;
+  sort_order: number;
+  is_active: boolean;
+  rates: ShippingRate[];
+  isExpanded?: boolean;
+}
+
+interface ShippingRate {
+  id?: string;
+  method_id?: string;
+  name: string;
+  min_weight_grams: number;
+  max_weight_grams: number | null;
+  min_subtotal: number;
+  max_subtotal: number | null;
+  price: number;
+  price_per_extra_kg: number;
+  priority: number;
+  is_active: boolean;
+}
+
 interface ShippingZone {
   id?: string;
   region_code: string;
@@ -48,15 +81,21 @@ interface ShippingZone {
   base_price: number;
   has_commune_breakdown: boolean;
   is_active: boolean;
-  communes?: ShippingCommune[];
+  methods: ShippingMethod[];
   isExpanded?: boolean;
 }
 
-interface ShippingCommune {
+interface FreeShippingRule {
   id?: string;
-  commune_code: string;
-  commune_name: string;
-  price: number;
+  name: string;
+  min_subtotal: number | null;
+  max_subtotal: number | null;
+  min_weight_grams: number | null;
+  max_weight_grams: number | null;
+  min_items: number | null;
+  applies_to_methods: string[] | null;
+  applies_to_zones: string[] | null;
+  priority: number;
   is_active: boolean;
 }
 
@@ -68,11 +107,17 @@ interface ShopifyShippingRate {
   max_order_subtotal?: string;
 }
 
+// Generar código único para método
+function generateMethodCode(): string {
+  return `method_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+}
+
 export default function ShippingTab({ store }: ShippingTabProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [activeTab, setActiveTab] = useState<'zones' | 'free_shipping'>('zones');
 
   // Estado de configuración
   const [config, setConfig] = useState<ShippingConfig>({
@@ -83,8 +128,11 @@ export default function ShippingTab({ store }: ShippingTabProps) {
     is_active: true,
   });
 
-  // Zonas de envío (para modo manual)
+  // Zonas de envío con métodos
   const [zones, setZones] = useState<ShippingZone[]>([]);
+
+  // Reglas de envío gratis
+  const [freeShippingRules, setFreeShippingRules] = useState<FreeShippingRule[]>([]);
 
   // Tarifas de Shopify (para referencia)
   const [shopifyRates, setShopifyRates] = useState<ShopifyShippingRate[]>([]);
@@ -115,29 +163,64 @@ export default function ShippingTab({ store }: ShippingTabProps) {
         });
       }
 
-      // Cargar zonas si hay configuración manual
+      // Cargar zonas con métodos y tarifas
       const { data: zonesData } = await supabase
         .from('store_shipping_zones')
-        .select(`
-          *,
-          communes:store_shipping_communes(*)
-        `)
+        .select('*')
         .eq('store_id', store.id)
         .order('region_code');
 
       if (zonesData && zonesData.length > 0) {
-        setZones(
-          zonesData.map((z) => ({
-            id: z.id,
-            region_code: z.region_code,
-            region_name: z.region_name,
-            base_price: z.base_price,
-            has_commune_breakdown: z.has_commune_breakdown,
-            is_active: z.is_active,
-            communes: z.communes || [],
-            isExpanded: false,
-          }))
+        // Para cada zona, cargar sus métodos y tarifas
+        const zonesWithMethods = await Promise.all(
+          zonesData.map(async (zone) => {
+            const { data: methodsData } = await supabase
+              .from('store_shipping_methods')
+              .select('*')
+              .eq('zone_id', zone.id)
+              .order('sort_order');
+
+            const methods = await Promise.all(
+              (methodsData || []).map(async (method) => {
+                const { data: ratesData } = await supabase
+                  .from('store_shipping_rates')
+                  .select('*')
+                  .eq('method_id', method.id)
+                  .order('priority', { ascending: false });
+
+                return {
+                  ...method,
+                  rates: ratesData || [],
+                  isExpanded: false,
+                };
+              })
+            );
+
+            return {
+              id: zone.id,
+              region_code: zone.region_code,
+              region_name: zone.region_name,
+              base_price: zone.base_price,
+              has_commune_breakdown: zone.has_commune_breakdown,
+              is_active: zone.is_active,
+              methods,
+              isExpanded: false,
+            };
+          })
         );
+
+        setZones(zonesWithMethods);
+      }
+
+      // Cargar reglas de envío gratis
+      const { data: freeRulesData } = await supabase
+        .from('store_free_shipping_rules')
+        .select('*')
+        .eq('store_id', store.id)
+        .order('priority', { ascending: false });
+
+      if (freeRulesData) {
+        setFreeShippingRules(freeRulesData);
       }
 
       // Intentar cargar tarifas de Shopify para referencia
@@ -211,7 +294,7 @@ export default function ShippingTab({ store }: ShippingTabProps) {
     setResult(null);
 
     try {
-      // Guardar/actualizar configuración principal
+      // 1. Guardar/actualizar configuración principal
       const configPayload = {
         store_id: store.id,
         shipping_type: config.shipping_type,
@@ -222,28 +305,19 @@ export default function ShippingTab({ store }: ShippingTabProps) {
       };
 
       if (config.id) {
-        // Actualizar existente
-        const { error } = await supabase
-          .from('store_shipping_config')
-          .update(configPayload)
-          .eq('id', config.id);
-
-        if (error) throw error;
+        await supabase.from('store_shipping_config').update(configPayload).eq('id', config.id);
       } else {
-        // Crear nuevo
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('store_shipping_config')
           .insert(configPayload)
           .select()
           .single();
-
-        if (error) throw error;
-        setConfig((prev) => ({ ...prev, id: data.id }));
+        if (data) setConfig((prev) => ({ ...prev, id: data.id }));
       }
 
-      // Si es modo manual, guardar zonas
+      // 2. Si es modo manual, guardar zonas, métodos y tarifas
       if (config.shipping_type === 'zone_manual') {
-        // Eliminar zonas existentes y recrear
+        // Eliminar zonas existentes (cascade elimina métodos y tarifas)
         await supabase.from('store_shipping_zones').delete().eq('store_id', store.id);
 
         for (const zone of zones) {
@@ -254,7 +328,7 @@ export default function ShippingTab({ store }: ShippingTabProps) {
               store_id: store.id,
               region_code: zone.region_code,
               region_name: zone.region_name,
-              base_price: zone.base_price,
+              base_price: zone.base_price || 0,
               has_commune_breakdown: zone.has_commune_breakdown,
               is_active: zone.is_active,
             })
@@ -263,23 +337,60 @@ export default function ShippingTab({ store }: ShippingTabProps) {
 
           if (zoneError) throw zoneError;
 
-          // Insertar comunas si hay desglose
-          if (zone.has_commune_breakdown && zone.communes && zone.communes.length > 0) {
-            const communesPayload = zone.communes.map((c) => ({
-              zone_id: zoneData.id,
-              commune_code: c.commune_code,
-              commune_name: c.commune_name,
-              price: c.price,
-              is_active: c.is_active,
-            }));
+          // Insertar métodos de la zona
+          for (const method of zone.methods) {
+            const { data: methodData, error: methodError } = await supabase
+              .from('store_shipping_methods')
+              .insert({
+                zone_id: zoneData.id,
+                name: method.name,
+                code: method.code,
+                description: method.description,
+                estimated_delivery: method.estimated_delivery,
+                sort_order: method.sort_order,
+                is_active: method.is_active,
+              })
+              .select()
+              .single();
 
-            const { error: communesError } = await supabase
-              .from('store_shipping_communes')
-              .insert(communesPayload);
+            if (methodError) throw methodError;
 
-            if (communesError) throw communesError;
+            // Insertar tarifas del método
+            for (const rate of method.rates) {
+              await supabase.from('store_shipping_rates').insert({
+                method_id: methodData.id,
+                name: rate.name,
+                min_weight_grams: rate.min_weight_grams,
+                max_weight_grams: rate.max_weight_grams,
+                min_subtotal: rate.min_subtotal,
+                max_subtotal: rate.max_subtotal,
+                price: rate.price,
+                price_per_extra_kg: rate.price_per_extra_kg,
+                priority: rate.priority,
+                is_active: rate.is_active,
+              });
+            }
           }
         }
+      }
+
+      // 3. Guardar reglas de envío gratis
+      await supabase.from('store_free_shipping_rules').delete().eq('store_id', store.id);
+
+      for (const rule of freeShippingRules) {
+        await supabase.from('store_free_shipping_rules').insert({
+          store_id: store.id,
+          name: rule.name,
+          min_subtotal: rule.min_subtotal,
+          max_subtotal: rule.max_subtotal,
+          min_weight_grams: rule.min_weight_grams,
+          max_weight_grams: rule.max_weight_grams,
+          min_items: rule.min_items,
+          applies_to_methods: rule.applies_to_methods,
+          applies_to_zones: rule.applies_to_zones,
+          priority: rule.priority,
+          is_active: rule.is_active,
+        });
       }
 
       setResult({
@@ -297,32 +408,48 @@ export default function ShippingTab({ store }: ShippingTabProps) {
     }
   }
 
+  // === FUNCIONES PARA ZONAS ===
+
   function addZone(region: Region) {
-    // Verificar que no exista ya
-    if (zones.find((z) => z.region_code === region.code)) {
-      return;
-    }
+    if (zones.find((z) => z.region_code === region.code)) return;
 
     setZones([
       ...zones,
       {
         region_code: region.code,
         region_name: region.name,
-        base_price: 4990,
+        base_price: 0,
         has_commune_breakdown: false,
         is_active: true,
-        communes: [],
-        isExpanded: false,
+        methods: [
+          {
+            name: 'Envío Estándar',
+            code: 'standard',
+            estimated_delivery: '3-5 días hábiles',
+            sort_order: 0,
+            is_active: true,
+            rates: [
+              {
+                name: 'Tarifa base',
+                min_weight_grams: 0,
+                max_weight_grams: null,
+                min_subtotal: 0,
+                max_subtotal: null,
+                price: 4990,
+                price_per_extra_kg: 0,
+                priority: 0,
+                is_active: true,
+              },
+            ],
+          },
+        ],
+        isExpanded: true,
       },
     ]);
   }
 
   function removeZone(regionCode: string) {
     setZones(zones.filter((z) => z.region_code !== regionCode));
-  }
-
-  function updateZone(regionCode: string, updates: Partial<ShippingZone>) {
-    setZones(zones.map((z) => (z.region_code === regionCode ? { ...z, ...updates } : z)));
   }
 
   function toggleZoneExpanded(regionCode: string) {
@@ -337,15 +464,222 @@ export default function ShippingTab({ store }: ShippingTabProps) {
     ).map((region) => ({
       region_code: region.code,
       region_name: region.name,
-      base_price: defaultPrice,
+      base_price: 0,
       has_commune_breakdown: false,
       is_active: true,
-      communes: [],
+      methods: [
+        {
+          name: 'Envío Estándar',
+          code: 'standard',
+          estimated_delivery: '3-5 días hábiles',
+          sort_order: 0,
+          is_active: true,
+          rates: [
+            {
+              name: 'Tarifa base',
+              min_weight_grams: 0,
+              max_weight_grams: null,
+              min_subtotal: 0,
+              max_subtotal: null,
+              price: defaultPrice,
+              price_per_extra_kg: 0,
+              priority: 0,
+              is_active: true,
+            },
+          ],
+        },
+      ],
       isExpanded: false,
     }));
 
     setZones([...zones, ...newZones]);
   }
+
+  // === FUNCIONES PARA MÉTODOS ===
+
+  function addMethodToZone(regionCode: string) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+
+        return {
+          ...zone,
+          methods: [
+            ...zone.methods,
+            {
+              name: 'Nuevo método',
+              code: generateMethodCode(),
+              estimated_delivery: '3-5 días hábiles',
+              sort_order: zone.methods.length,
+              is_active: true,
+              rates: [
+                {
+                  name: 'Tarifa base',
+                  min_weight_grams: 0,
+                  max_weight_grams: null,
+                  min_subtotal: 0,
+                  max_subtotal: null,
+                  price: 4990,
+                  price_per_extra_kg: 0,
+                  priority: 0,
+                  is_active: true,
+                },
+              ],
+              isExpanded: true,
+            },
+          ],
+        };
+      })
+    );
+  }
+
+  function removeMethodFromZone(regionCode: string, methodCode: string) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          methods: zone.methods.filter((m) => m.code !== methodCode),
+        };
+      })
+    );
+  }
+
+  function updateMethod(regionCode: string, methodCode: string, updates: Partial<ShippingMethod>) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          methods: zone.methods.map((m) =>
+            m.code === methodCode ? { ...m, ...updates } : m
+          ),
+        };
+      })
+    );
+  }
+
+  function toggleMethodExpanded(regionCode: string, methodCode: string) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          methods: zone.methods.map((m) =>
+            m.code === methodCode ? { ...m, isExpanded: !m.isExpanded } : m
+          ),
+        };
+      })
+    );
+  }
+
+  // === FUNCIONES PARA TARIFAS ===
+
+  function addRateToMethod(regionCode: string, methodCode: string) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          methods: zone.methods.map((method) => {
+            if (method.code !== methodCode) return method;
+            return {
+              ...method,
+              rates: [
+                ...method.rates,
+                {
+                  name: `Tarifa ${method.rates.length + 1}`,
+                  min_weight_grams: 0,
+                  max_weight_grams: null,
+                  min_subtotal: 0,
+                  max_subtotal: null,
+                  price: 4990,
+                  price_per_extra_kg: 0,
+                  priority: method.rates.length,
+                  is_active: true,
+                },
+              ],
+            };
+          }),
+        };
+      })
+    );
+  }
+
+  function updateRate(
+    regionCode: string,
+    methodCode: string,
+    rateIndex: number,
+    updates: Partial<ShippingRate>
+  ) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          methods: zone.methods.map((method) => {
+            if (method.code !== methodCode) return method;
+            return {
+              ...method,
+              rates: method.rates.map((rate, idx) =>
+                idx === rateIndex ? { ...rate, ...updates } : rate
+              ),
+            };
+          }),
+        };
+      })
+    );
+  }
+
+  function removeRate(regionCode: string, methodCode: string, rateIndex: number) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          methods: zone.methods.map((method) => {
+            if (method.code !== methodCode) return method;
+            return {
+              ...method,
+              rates: method.rates.filter((_, idx) => idx !== rateIndex),
+            };
+          }),
+        };
+      })
+    );
+  }
+
+  // === FUNCIONES PARA ENVÍO GRATIS ===
+
+  function addFreeShippingRule() {
+    setFreeShippingRules([
+      ...freeShippingRules,
+      {
+        name: 'Nueva regla de envío gratis',
+        min_subtotal: 50000,
+        max_subtotal: null,
+        min_weight_grams: null,
+        max_weight_grams: null,
+        min_items: null,
+        applies_to_methods: null,
+        applies_to_zones: null,
+        priority: freeShippingRules.length,
+        is_active: true,
+      },
+    ]);
+  }
+
+  function updateFreeShippingRule(index: number, updates: Partial<FreeShippingRule>) {
+    setFreeShippingRules(
+      freeShippingRules.map((rule, idx) => (idx === index ? { ...rule, ...updates } : rule))
+    );
+  }
+
+  function removeFreeShippingRule(index: number) {
+    setFreeShippingRules(freeShippingRules.filter((_, idx) => idx !== index));
+  }
+
+  // === RENDER ===
 
   if (loading) {
     return (
@@ -412,23 +746,8 @@ export default function ShippingTab({ store }: ShippingTabProps) {
             <div className="flex-1">
               <div className="font-medium text-gray-900">Tarifas Planas (Shopify)</div>
               <p className="text-sm text-gray-500 mt-1">
-                Usa las tarifas configuradas en tu tienda Shopify. Se sincronizan automáticamente.
+                Usa las tarifas configuradas en tu tienda Shopify.
               </p>
-              {config.shipping_type === 'flat_shopify' && shopifyRates.length > 0 && (
-                <div className="mt-3 p-3 bg-gray-100 rounded-lg">
-                  <div className="text-xs font-medium text-gray-600 mb-2">
-                    Tarifas encontradas en Shopify:
-                  </div>
-                  {shopifyRates.map((rate) => (
-                    <div key={rate.id} className="text-sm text-gray-700 flex justify-between">
-                      <span>{rate.name}</span>
-                      <span className="font-medium">
-                        ${parseInt(rate.price).toLocaleString('es-CL')}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
               {config.shipping_type === 'flat_shopify' && (
                 <button
                   onClick={handleSyncFromShopify}
@@ -442,7 +761,7 @@ export default function ShippingTab({ store }: ShippingTabProps) {
             </div>
           </label>
 
-          {/* Opción: Tarifas por Zona */}
+          {/* Opción: Tarifas por Zona (Manual Avanzado) */}
           <label
             className={`flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
               config.shipping_type === 'zone_manual'
@@ -459,34 +778,20 @@ export default function ShippingTab({ store }: ShippingTabProps) {
               className="mt-1"
             />
             <div className="flex-1">
-              <div className="font-medium text-gray-900">Tarifas por Zona (Manual)</div>
+              <div className="font-medium text-gray-900">Tarifas por Zona (Avanzado)</div>
               <p className="text-sm text-gray-500 mt-1">
-                Configura tarifas personalizadas por región y opcionalmente por comuna.
+                Múltiples métodos de envío, tarifas por peso y precio, envío gratis condicional.
               </p>
             </div>
           </label>
 
           {/* Opción: Grumo Logistics (Próximamente) */}
-          <label
-            className={`flex items-start gap-3 p-4 rounded-lg border-2 cursor-not-allowed opacity-60 ${
-              config.shipping_type === 'grumo_logistics'
-                ? 'border-gray-900 bg-gray-50'
-                : 'border-gray-200'
-            }`}
-          >
-            <input
-              type="radio"
-              name="shipping_type"
-              value="grumo_logistics"
-              disabled
-              className="mt-1"
-            />
+          <label className="flex items-start gap-3 p-4 rounded-lg border-2 cursor-not-allowed opacity-60 border-gray-200">
+            <input type="radio" name="shipping_type" value="grumo_logistics" disabled className="mt-1" />
             <div className="flex-1">
               <div className="font-medium text-gray-900 flex items-center gap-2">
                 Grumo Logistics
-                <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">
-                  Próximamente
-                </span>
+                <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">Próximamente</span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
                 Tarifas negociadas con carriers (BlueExpress, Chilexpress, etc.)
@@ -496,238 +801,524 @@ export default function ShippingTab({ store }: ShippingTabProps) {
         </div>
       </div>
 
-      {/* Configuración de Envío Gratis */}
-      <div className="bg-white border-2 border-gray-200 rounded-xl p-6">
-        <h4 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-          <DollarSign size={18} className="text-gray-600" />
-          Envío Gratis
-        </h4>
-
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="enable_free_shipping"
-              checked={config.free_shipping_threshold !== null}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  free_shipping_threshold: e.target.checked ? 50000 : null,
-                })
-              }
-              className="w-5 h-5 rounded border-gray-300"
-            />
-            <label htmlFor="enable_free_shipping" className="text-sm text-gray-700">
-              Habilitar envío gratis sobre un monto mínimo
-            </label>
-          </div>
-
-          {config.free_shipping_threshold !== null && (
-            <div className="ml-8">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Monto mínimo para envío gratis
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
-                <input
-                  type="number"
-                  value={config.free_shipping_threshold}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      free_shipping_threshold: parseInt(e.target.value) || 0,
-                    })
-                  }
-                  className="w-full pl-8 p-3 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-gray-900 outline-none"
-                  placeholder="50000"
-                />
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Los pedidos sobre este monto tendrán envío gratis
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Zonas de Envío (solo si es modo manual) */}
+      {/* Tabs para Zonas y Envío Gratis (solo en modo manual) */}
       {config.shipping_type === 'zone_manual' && (
-        <div className="bg-white border-2 border-gray-200 rounded-xl p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h4 className="font-bold text-gray-900 flex items-center gap-2">
-              <MapPin size={18} className="text-gray-600" />
-              Zonas de Envío
-            </h4>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => addAllZonesWithDefaultPrice(4990)}
-                className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
-              >
-                <Plus size={14} />
-                Agregar todas ($4.990)
-              </button>
-            </div>
+        <>
+          <div className="flex gap-2 border-b border-gray-200">
+            <button
+              onClick={() => setActiveTab('zones')}
+              className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
+                activeTab === 'zones'
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <MapPin size={16} className="inline mr-2" />
+              Zonas y Métodos
+            </button>
+            <button
+              onClick={() => setActiveTab('free_shipping')}
+              className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
+                activeTab === 'free_shipping'
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Gift size={16} className="inline mr-2" />
+              Envío Gratis
+            </button>
           </div>
 
-          {/* Lista de zonas configuradas */}
-          {zones.length > 0 ? (
-            <div className="space-y-3">
-              {zones.map((zone) => {
-                const regionData = CHILE_REGIONS.find((r) => r.code === zone.region_code);
+          {/* Tab: Zonas y Métodos */}
+          {activeTab === 'zones' && (
+            <div className="bg-white border-2 border-gray-200 rounded-xl p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                  <MapPin size={18} className="text-gray-600" />
+                  Zonas de Envío
+                </h4>
+                <button
+                  onClick={() => addAllZonesWithDefaultPrice(4990)}
+                  className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
+                >
+                  <Plus size={14} />
+                  Agregar todas ($4.990)
+                </button>
+              </div>
 
-                return (
-                  <div
-                    key={zone.region_code}
-                    className="border border-gray-200 rounded-lg overflow-hidden"
-                  >
-                    {/* Header de la zona */}
-                    <div className="flex items-center gap-3 p-4 bg-gray-50">
-                      <button
+              {/* Lista de zonas */}
+              {zones.length > 0 ? (
+                <div className="space-y-4">
+                  {zones.map((zone) => (
+                    <div key={zone.region_code} className="border border-gray-200 rounded-lg overflow-hidden">
+                      {/* Header de zona */}
+                      <div
+                        className="flex items-center gap-3 p-4 bg-gray-50 cursor-pointer"
                         onClick={() => toggleZoneExpanded(zone.region_code)}
-                        className="text-gray-500 hover:text-gray-700"
                       >
                         {zone.isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                      </button>
-
-                      <div className="flex-1">
-                        <span className="font-medium text-gray-900">{zone.region_name}</span>
-                        <span className="text-xs text-gray-500 ml-2">({zone.region_code})</span>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm">
-                            $
+                        <div className="flex-1">
+                          <span className="font-medium text-gray-900">{zone.region_name}</span>
+                          <span className="text-xs text-gray-500 ml-2">({zone.region_code})</span>
+                          <span className="text-xs text-gray-400 ml-3">
+                            {zone.methods.length} método{zone.methods.length !== 1 ? 's' : ''}
                           </span>
-                          <input
-                            type="number"
-                            value={zone.base_price}
-                            onChange={(e) =>
-                              updateZone(zone.region_code, {
-                                base_price: parseInt(e.target.value) || 0,
-                              })
-                            }
-                            className="w-28 pl-6 p-2 border border-gray-300 rounded text-sm"
-                          />
                         </div>
-
                         <button
-                          onClick={() => removeZone(zone.region_code)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeZone(zone.region_code);
+                          }}
                           className="text-red-500 hover:text-red-700 p-1"
                         >
                           <Trash2 size={16} />
                         </button>
                       </div>
-                    </div>
 
-                    {/* Desglose por comunas (expandido) */}
-                    {zone.isExpanded && regionData && (
-                      <div className="p-4 border-t border-gray-200 bg-white">
-                        <div className="flex items-center gap-2 mb-3">
-                          <input
-                            type="checkbox"
-                            id={`breakdown_${zone.region_code}`}
-                            checked={zone.has_commune_breakdown}
-                            onChange={(e) =>
-                              updateZone(zone.region_code, {
-                                has_commune_breakdown: e.target.checked,
-                                communes: e.target.checked
-                                  ? regionData.communes.map((c) => ({
-                                      commune_code: c.code,
-                                      commune_name: c.name,
-                                      price: zone.base_price,
-                                      is_active: true,
-                                    }))
-                                  : [],
-                              })
-                            }
-                            className="w-4 h-4 rounded border-gray-300"
-                          />
-                          <label
-                            htmlFor={`breakdown_${zone.region_code}`}
-                            className="text-sm text-gray-700"
-                          >
-                            Desglosar por comuna
-                          </label>
-                        </div>
-
-                        {zone.has_commune_breakdown && zone.communes && (
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
-                            {zone.communes.map((commune) => (
+                      {/* Contenido expandido de zona */}
+                      {zone.isExpanded && (
+                        <div className="p-4 border-t border-gray-200 space-y-4">
+                          {/* Métodos de envío */}
+                          {zone.methods.map((method) => (
+                            <div
+                              key={method.code}
+                              className="border border-gray-100 rounded-lg bg-white"
+                            >
+                              {/* Header de método */}
                               <div
-                                key={commune.commune_code}
-                                className="flex items-center gap-2 p-2 bg-gray-50 rounded"
+                                className="flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50"
+                                onClick={() => toggleMethodExpanded(zone.region_code, method.code)}
                               >
-                                <span className="flex-1 text-sm text-gray-700 truncate">
-                                  {commune.commune_name}
-                                </span>
-                                <div className="relative">
-                                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">
-                                    $
+                                {method.isExpanded ? (
+                                  <ChevronDown size={16} />
+                                ) : (
+                                  <ChevronRight size={16} />
+                                )}
+                                <div className="flex-1 flex items-center gap-2">
+                                  <Truck size={16} className="text-gray-400" />
+                                  <span className="font-medium text-gray-800">{method.name}</span>
+                                  <span className="text-xs text-gray-500">
+                                    ({method.estimated_delivery})
                                   </span>
-                                  <input
-                                    type="number"
-                                    value={commune.price}
-                                    onChange={(e) => {
-                                      const newCommunes = zone.communes!.map((c) =>
-                                        c.commune_code === commune.commune_code
-                                          ? { ...c, price: parseInt(e.target.value) || 0 }
-                                          : c
-                                      );
-                                      updateZone(zone.region_code, { communes: newCommunes });
-                                    }}
-                                    className="w-20 pl-4 p-1 border border-gray-200 rounded text-xs"
-                                  />
+                                  <span className="text-xs text-gray-400">
+                                    - {method.rates.length} tarifa{method.rates.length !== 1 ? 's' : ''}
+                                  </span>
                                 </div>
+                                {zone.methods.length > 1 && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      removeMethodFromZone(zone.region_code, method.code);
+                                    }}
+                                    className="text-red-400 hover:text-red-600 p-1"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+
+                              {/* Contenido del método expandido */}
+                              {method.isExpanded && (
+                                <div className="p-3 pt-0 space-y-3">
+                                  {/* Configuración del método */}
+                                  <div className="p-3 bg-blue-50 rounded-lg space-y-3 border border-blue-100">
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
+                                        <label className="text-xs text-gray-600 font-medium">Nombre del método</label>
+                                        <input
+                                          type="text"
+                                          value={method.name}
+                                          onChange={(e) =>
+                                            updateMethod(zone.region_code, method.code, {
+                                              name: e.target.value,
+                                            })
+                                          }
+                                          className="w-full p-2 border border-gray-200 rounded text-sm"
+                                          placeholder="Ej: Envío Express, Same Day, Contra Entrega..."
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-xs text-gray-600 font-medium">Tiempo de entrega</label>
+                                        <input
+                                          type="text"
+                                          value={method.estimated_delivery}
+                                          onChange={(e) =>
+                                            updateMethod(zone.region_code, method.code, {
+                                              estimated_delivery: e.target.value,
+                                            })
+                                          }
+                                          className="w-full p-2 border border-gray-200 rounded text-sm"
+                                          placeholder="Ej: 1-2 días, Hoy, Al momento de pagar..."
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Tarifas */}
+                                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wide pt-2">
+                                    Tarifas de este método
+                                  </div>
+                                  {method.rates.map((rate, rateIdx) => (
+                                    <div
+                                      key={rateIdx}
+                                      className="p-3 bg-gray-50 rounded-lg space-y-3"
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <input
+                                          type="text"
+                                          value={rate.name}
+                                          onChange={(e) =>
+                                            updateRate(zone.region_code, method.code, rateIdx, {
+                                              name: e.target.value,
+                                            })
+                                          }
+                                          className="font-medium text-sm bg-transparent border-none focus:outline-none"
+                                          placeholder="Nombre de tarifa"
+                                        />
+                                        {method.rates.length > 1 && (
+                                          <button
+                                            onClick={() =>
+                                              removeRate(zone.region_code, method.code, rateIdx)
+                                            }
+                                            className="text-red-400 hover:text-red-600"
+                                          >
+                                            <Trash2 size={14} />
+                                          </button>
+                                        )}
+                                      </div>
+
+                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                        {/* Peso */}
+                                        <div>
+                                          <label className="text-xs text-gray-500 flex items-center gap-1">
+                                            <Scale size={12} />
+                                            Peso mín (g)
+                                          </label>
+                                          <input
+                                            type="number"
+                                            value={rate.min_weight_grams}
+                                            onChange={(e) =>
+                                              updateRate(zone.region_code, method.code, rateIdx, {
+                                                min_weight_grams: parseInt(e.target.value) || 0,
+                                              })
+                                            }
+                                            className="w-full p-2 border border-gray-200 rounded text-sm"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-xs text-gray-500">Peso máx (g)</label>
+                                          <input
+                                            type="number"
+                                            value={rate.max_weight_grams || ''}
+                                            onChange={(e) =>
+                                              updateRate(zone.region_code, method.code, rateIdx, {
+                                                max_weight_grams: e.target.value
+                                                  ? parseInt(e.target.value)
+                                                  : null,
+                                              })
+                                            }
+                                            placeholder="Sin límite"
+                                            className="w-full p-2 border border-gray-200 rounded text-sm"
+                                          />
+                                        </div>
+
+                                        {/* Subtotal */}
+                                        <div>
+                                          <label className="text-xs text-gray-500 flex items-center gap-1">
+                                            <DollarSign size={12} />
+                                            Subtotal mín
+                                          </label>
+                                          <input
+                                            type="number"
+                                            value={rate.min_subtotal}
+                                            onChange={(e) =>
+                                              updateRate(zone.region_code, method.code, rateIdx, {
+                                                min_subtotal: parseInt(e.target.value) || 0,
+                                              })
+                                            }
+                                            className="w-full p-2 border border-gray-200 rounded text-sm"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-xs text-gray-500">Subtotal máx</label>
+                                          <input
+                                            type="number"
+                                            value={rate.max_subtotal || ''}
+                                            onChange={(e) =>
+                                              updateRate(zone.region_code, method.code, rateIdx, {
+                                                max_subtotal: e.target.value
+                                                  ? parseInt(e.target.value)
+                                                  : null,
+                                              })
+                                            }
+                                            placeholder="Sin límite"
+                                            className="w-full p-2 border border-gray-200 rounded text-sm"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div className="grid grid-cols-2 gap-3">
+                                        {/* Precio */}
+                                        <div>
+                                          <label className="text-xs text-gray-500">Precio ($)</label>
+                                          <input
+                                            type="number"
+                                            value={rate.price}
+                                            onChange={(e) =>
+                                              updateRate(zone.region_code, method.code, rateIdx, {
+                                                price: parseInt(e.target.value) || 0,
+                                              })
+                                            }
+                                            className="w-full p-2 border border-gray-200 rounded text-sm font-medium"
+                                          />
+                                        </div>
+                                        {/* Precio por kg extra */}
+                                        <div>
+                                          <label className="text-xs text-gray-500">$/kg extra</label>
+                                          <input
+                                            type="number"
+                                            value={rate.price_per_extra_kg}
+                                            onChange={(e) =>
+                                              updateRate(zone.region_code, method.code, rateIdx, {
+                                                price_per_extra_kg: parseInt(e.target.value) || 0,
+                                              })
+                                            }
+                                            placeholder="0"
+                                            className="w-full p-2 border border-gray-200 rounded text-sm"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+
+                                  <button
+                                    onClick={() => addRateToMethod(zone.region_code, method.code)}
+                                    className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-gray-400 hover:text-gray-700 flex items-center justify-center gap-2"
+                                  >
+                                    <Plus size={14} />
+                                    Agregar tarifa
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+
+                          {/* Agregar método */}
+                          <button
+                            onClick={() => addMethodToZone(zone.region_code)}
+                            className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-600 hover:border-gray-400 hover:text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <Plus size={16} />
+                            Agregar método de envío
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 text-center py-4">
+                  No hay zonas configuradas. Agrega regiones para configurar tarifas.
+                </p>
+              )}
+
+              {/* Selector para agregar zona */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Agregar región</label>
+                <select
+                  onChange={(e) => {
+                    const region = CHILE_REGIONS.find((r) => r.code === e.target.value);
+                    if (region) addZone(region);
+                    e.target.value = '';
+                  }}
+                  className="w-full p-3 border-2 border-gray-300 rounded-lg text-sm"
+                  defaultValue=""
+                >
+                  <option value="" disabled>Selecciona una región...</option>
+                  {CHILE_REGIONS.filter((r) => !zones.find((z) => z.region_code === r.code)).map(
+                    (region) => (
+                      <option key={region.code} value={region.code}>
+                        {region.name}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
             </div>
-          ) : (
-            <p className="text-sm text-gray-500 text-center py-4">
-              No hay zonas configuradas. Agrega regiones para configurar tarifas.
-            </p>
           )}
 
-          {/* Selector para agregar nueva zona */}
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Agregar región</label>
-            <select
-              onChange={(e) => {
-                const region = CHILE_REGIONS.find((r) => r.code === e.target.value);
-                if (region) addZone(region);
-                e.target.value = '';
-              }}
-              className="w-full p-3 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-gray-900 outline-none"
-              defaultValue=""
-            >
-              <option value="" disabled>
-                Selecciona una región...
-              </option>
-              {CHILE_REGIONS.filter((r) => !zones.find((z) => z.region_code === r.code)).map(
-                (region) => (
-                  <option key={region.code} value={region.code}>
-                    {region.name}
-                  </option>
-                )
+          {/* Tab: Envío Gratis */}
+          {activeTab === 'free_shipping' && (
+            <div className="bg-white border-2 border-gray-200 rounded-xl p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                  <Gift size={18} className="text-gray-600" />
+                  Reglas de Envío Gratis
+                </h4>
+                <button
+                  onClick={addFreeShippingRule}
+                  className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
+                >
+                  <Plus size={14} />
+                  Nueva regla
+                </button>
+              </div>
+
+              {freeShippingRules.length > 0 ? (
+                <div className="space-y-4">
+                  {freeShippingRules.map((rule, idx) => (
+                    <div key={idx} className="p-4 border border-gray-200 rounded-lg space-y-4">
+                      <div className="flex items-center justify-between">
+                        <input
+                          type="text"
+                          value={rule.name}
+                          onChange={(e) => updateFreeShippingRule(idx, { name: e.target.value })}
+                          className="font-medium text-gray-900 bg-transparent border-none focus:outline-none flex-1"
+                          placeholder="Nombre de la regla"
+                        />
+                        <div className="flex items-center gap-2">
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={rule.is_active}
+                              onChange={(e) =>
+                                updateFreeShippingRule(idx, { is_active: e.target.checked })
+                              }
+                              className="rounded"
+                            />
+                            Activa
+                          </label>
+                          <button
+                            onClick={() => removeFreeShippingRule(idx)}
+                            className="text-red-500 hover:text-red-700 p-1"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-gray-500">
+                        Todas las condiciones deben cumplirse (lógica AND)
+                      </p>
+
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        {/* Subtotal */}
+                        <div>
+                          <label className="text-xs text-gray-500">Subtotal mínimo ($)</label>
+                          <input
+                            type="number"
+                            value={rule.min_subtotal || ''}
+                            onChange={(e) =>
+                              updateFreeShippingRule(idx, {
+                                min_subtotal: e.target.value ? parseInt(e.target.value) : null,
+                              })
+                            }
+                            placeholder="Sin mínimo"
+                            className="w-full p-2 border border-gray-200 rounded text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500">Subtotal máximo ($)</label>
+                          <input
+                            type="number"
+                            value={rule.max_subtotal || ''}
+                            onChange={(e) =>
+                              updateFreeShippingRule(idx, {
+                                max_subtotal: e.target.value ? parseInt(e.target.value) : null,
+                              })
+                            }
+                            placeholder="Sin límite"
+                            className="w-full p-2 border border-gray-200 rounded text-sm"
+                          />
+                        </div>
+
+                        {/* Peso */}
+                        <div>
+                          <label className="text-xs text-gray-500">Peso máximo (g)</label>
+                          <input
+                            type="number"
+                            value={rule.max_weight_grams || ''}
+                            onChange={(e) =>
+                              updateFreeShippingRule(idx, {
+                                max_weight_grams: e.target.value ? parseInt(e.target.value) : null,
+                              })
+                            }
+                            placeholder="Sin límite"
+                            className="w-full p-2 border border-gray-200 rounded text-sm"
+                          />
+                        </div>
+
+                        {/* Items mínimos */}
+                        <div>
+                          <label className="text-xs text-gray-500">Items mínimos</label>
+                          <input
+                            type="number"
+                            value={rule.min_items || ''}
+                            onChange={(e) =>
+                              updateFreeShippingRule(idx, {
+                                min_items: e.target.value ? parseInt(e.target.value) : null,
+                              })
+                            }
+                            placeholder="Sin mínimo"
+                            className="w-full p-2 border border-gray-200 rounded text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Aplica a zonas */}
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">
+                          Aplica a zonas (dejar vacío = todas)
+                        </label>
+                        <div className="flex flex-wrap gap-1">
+                          {zones.map((zone) => (
+                            <button
+                              key={zone.region_code}
+                              onClick={() => {
+                                const current = rule.applies_to_zones || [];
+                                const updated = current.includes(zone.region_code)
+                                  ? current.filter((z) => z !== zone.region_code)
+                                  : [...current, zone.region_code];
+                                updateFreeShippingRule(idx, {
+                                  applies_to_zones: updated.length > 0 ? updated : null,
+                                });
+                              }}
+                              className={`text-xs px-2 py-1 rounded ${
+                                rule.applies_to_zones?.includes(zone.region_code)
+                                  ? 'bg-gray-900 text-white'
+                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              }`}
+                            >
+                              {zone.region_code}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <Gift size={32} className="mx-auto text-gray-300 mb-2" />
+                  <p className="text-sm text-gray-500">No hay reglas de envío gratis configuradas</p>
+                  <button
+                    onClick={addFreeShippingRule}
+                    className="mt-3 text-sm text-gray-600 hover:text-gray-900"
+                  >
+                    + Crear primera regla
+                  </button>
+                </div>
               )}
-            </select>
-          </div>
-        </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Botón Guardar */}
       <button
         onClick={handleSave}
         disabled={saving}
-        className="w-full bg-grumo-dark hover:bg-black disabled:bg-gray-300 text-white font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:cursor-not-allowed"
+        className="w-full bg-gray-900 hover:bg-black disabled:bg-gray-300 text-white font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:cursor-not-allowed"
       >
         {saving ? (
           <>

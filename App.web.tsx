@@ -125,6 +125,7 @@ const AdminApp = () => {
         logo_url: formData.logoUrl,
         banner_url: formData.bannerUrl,
         theme_color: formData.themeColor,
+        is_hidden: true, // Nueva tienda oculta por defecto hasta configurar
       });
 
       if (error) {
@@ -201,6 +202,7 @@ const AdminApp = () => {
                   id
                   title
                   description
+                  descriptionHtml
                   vendor
                   productType
                   tags
@@ -284,6 +286,7 @@ const AdminApp = () => {
           store_domain: store.domain,
           title: product.title,
           description: product.description || '',
+          description_html: product.descriptionHtml || '',
           price: parseFloat(defaultVariant?.price.amount || '0'),
           compare_at_price: defaultVariant?.compareAtPrice?.amount
             ? parseFloat(defaultVariant.compareAtPrice.amount)
@@ -360,6 +363,24 @@ const AdminApp = () => {
   const handleOpenDashboard = (store: Store) => {
     setSelectedStore(store);
     setView('store-detail');
+  };
+
+  const handleToggleVisibility = async (store: Store) => {
+    const newHiddenState = !store.is_hidden;
+    const action = newHiddenState ? 'ocultar' : 'mostrar';
+
+    if (!confirm(`¿Estás seguro de ${action} esta tienda en la app?`)) return;
+
+    const { error } = await supabase
+      .from('stores')
+      .update({ is_hidden: newHiddenState })
+      .eq('id', store.id);
+
+    if (error) {
+      alert('Error al actualizar visibilidad: ' + error.message);
+    } else {
+      fetchStores();
+    }
   };
 
   const handleBackToStores = () => {
@@ -672,6 +693,7 @@ const AdminApp = () => {
                     onSync={handleSync}
                     onEdit={handleEdit}
                     onDelete={handleDelete}
+                    onToggleVisibility={handleToggleVisibility}
                   />
                 ))}
               </div>

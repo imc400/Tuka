@@ -211,8 +211,9 @@ export default function NotificationsTab({ store }: NotificationsTabProps) {
     const totalClicked = history.reduce((acc, n) => acc + (n.total_clicked || 0), 0);
     const avgCTR = totalSent > 0 ? (totalClicked / totalSent) * 100 : 0;
     const totalConversions = history.reduce((acc, n) => acc + (n.conversions || 0), 0);
+    const totalRevenue = history.reduce((acc, n) => acc + (n.revenue || 0), 0);
 
-    return { totalSent, totalClicked, avgCTR, totalConversions };
+    return { totalSent, totalClicked, avgCTR, totalConversions, totalRevenue };
   }, [history]);
 
   // Construir datos de navegación según el tipo de destino
@@ -396,7 +397,7 @@ export default function NotificationsTab({ store }: NotificationsTabProps) {
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-grumo-dark rounded-xl p-4 text-white">
           <div className="flex items-center gap-2 text-gray-400 text-xs mb-1">
             <Users size={14} />
@@ -424,6 +425,13 @@ export default function NotificationsTab({ store }: NotificationsTabProps) {
             <span>Conversiones</span>
           </div>
           <p className="text-3xl font-bold">{metrics.totalConversions}</p>
+        </div>
+        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-4 text-white">
+          <div className="flex items-center gap-2 text-purple-100 text-xs mb-1">
+            <TrendingUp size={14} />
+            <span>Revenue</span>
+          </div>
+          <p className="text-2xl font-bold">${metrics.totalRevenue.toLocaleString('es-CL')}</p>
         </div>
       </div>
 

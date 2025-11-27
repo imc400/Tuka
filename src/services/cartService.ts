@@ -35,11 +35,31 @@ interface DBCartItem {
 
 /**
  * Obtener carrito del usuario desde la DB
+ * Filtra automáticamente productos de tiendas ocultas
  */
 export async function getCart(userId: string): Promise<{ cart: CartItem[]; error?: string }> {
   try {
     console.log('[CartService] Loading cart for user:', userId);
 
+    // 1. Get visible stores (not hidden)
+    const { data: visibleStores, error: storesError } = await supabase
+      .from('stores')
+      .select('domain')
+      .or('is_hidden.is.null,is_hidden.eq.false');
+
+    if (storesError) {
+      console.error('[CartService] Error loading visible stores:', storesError);
+      return { cart: [], error: storesError.message };
+    }
+
+    // Create set of visible store IDs (format: "real-domain.myshopify.com")
+    const visibleStoreIds = new Set(
+      (visibleStores || []).map((s: { domain: string }) => `real-${s.domain}`)
+    );
+
+    console.log('[CartService] Visible stores:', visibleStoreIds.size);
+
+    // 2. Get cart items
     const { data, error } = await supabase
       .from('cart_items')
       .select('*')
@@ -51,23 +71,30 @@ export async function getCart(userId: string): Promise<{ cart: CartItem[]; error
       return { cart: [], error: error.message };
     }
 
-    // Convertir de DB format a CartItem format
-    const cart: CartItem[] = (data || []).map((item: DBCartItem) => ({
-      id: item.product_id,
-      name: item.product_name,
-      price: item.product_price,
-      imagePrompt: '', // No usado para productos reales
-      images: item.product_image_url ? [item.product_image_url] : undefined,
-      storeName: item.store_name,
-      storeId: item.store_id,
-      quantity: item.quantity,
-      selectedVariant: item.variant_id ? {
-        id: item.variant_id,
-        title: item.variant_title || 'Default Title',
-        price: item.variant_price || item.product_price,
-        available: item.variant_available,
-      } : undefined,
-    }));
+    // 3. Filter out items from hidden stores and convert to CartItem format
+    const cart: CartItem[] = (data || [])
+      .filter((item: DBCartItem) => visibleStoreIds.has(item.store_id))
+      .map((item: DBCartItem) => ({
+        id: item.product_id,
+        name: item.product_name,
+        price: item.product_price,
+        imagePrompt: '', // No usado para productos reales
+        images: item.product_image_url ? [item.product_image_url] : undefined,
+        storeName: item.store_name,
+        storeId: item.store_id,
+        quantity: item.quantity,
+        selectedVariant: item.variant_id ? {
+          id: item.variant_id,
+          title: item.variant_title || 'Default Title',
+          price: item.variant_price || item.product_price,
+          available: item.variant_available,
+        } : undefined,
+      }));
+
+    const filteredCount = (data?.length || 0) - cart.length;
+    if (filteredCount > 0) {
+      console.log(`[CartService] Filtered out ${filteredCount} items from hidden stores`);
+    }
 
     console.log('[CartService] Cart loaded:', cart.length, 'items');
     return { cart };
@@ -263,12 +290,29 @@ export async function clearCart(userId: string): Promise<{ success: boolean; err
 
 /**
  * Obtener cantidad total de items en el carrito (suma de quantities)
+ * Solo cuenta productos de tiendas visibles
  */
 export async function getCartCount(userId: string): Promise<{ count: number; error?: string }> {
   try {
+    // 1. Get visible stores
+    const { data: visibleStores, error: storesError } = await supabase
+      .from('stores')
+      .select('domain')
+      .or('is_hidden.is.null,is_hidden.eq.false');
+
+    if (storesError) {
+      console.error('[CartService] Error loading visible stores:', storesError);
+      return { count: 0, error: storesError.message };
+    }
+
+    const visibleStoreIds = new Set(
+      (visibleStores || []).map((s: { domain: string }) => `real-${s.domain}`)
+    );
+
+    // 2. Get cart items
     const { data, error } = await supabase
       .from('cart_items')
-      .select('quantity')
+      .select('quantity, store_id')
       .eq('user_id', userId);
 
     if (error) {
@@ -276,7 +320,11 @@ export async function getCartCount(userId: string): Promise<{ count: number; err
       return { count: 0, error: error.message };
     }
 
-    const count = (data || []).reduce((sum, item) => sum + item.quantity, 0);
+    // 3. Only count items from visible stores
+    const count = (data || [])
+      .filter((item: { store_id: string }) => visibleStoreIds.has(item.store_id))
+      .reduce((sum, item) => sum + item.quantity, 0);
+
     return { count };
   } catch (error: any) {
     console.error('[CartService] Exception getting cart count:', error);

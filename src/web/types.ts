@@ -12,8 +12,18 @@ export interface Store {
   logo_url?: string;
   banner_url?: string;
   theme_color?: string;
+  is_hidden?: boolean;
   created_at?: string;
   updated_at?: string;
+  // Mercado Pago OAuth
+  mp_user_id?: string;
+  mp_email?: string;
+  mp_access_token?: string;
+  mp_refresh_token?: string;
+  mp_token_expires_at?: string;
+  mp_connected_at?: string;
+  mp_public_key?: string;
+  commission_rate?: number;
 }
 
 export interface NotificationRecipient {
@@ -58,4 +68,42 @@ export interface StoreFormData {
 
 export type DashboardView = 'stores' | 'store-detail';
 
-export type StoreTabType = 'notifications' | 'analytics' | 'sales' | 'shipping' | 'collections' | 'settings';
+export type StoreTabType = 'notifications' | 'analytics' | 'sales' | 'shipping' | 'collections' | 'settings' | 'subscribers' | 'payments';
+
+// Tipos para pagos/disbursements
+export interface StorePayment {
+  id: number;
+  store_domain: string;
+  transaction_id: number;
+  shopify_order_id?: string;
+  gross_amount: number;
+  mp_fee_amount: number;
+  grumo_commission: number;
+  net_amount: number;
+  status: 'pending' | 'transferred' | 'failed' | 'manual' | 'cancelled';
+  mp_transfer_id?: string;
+  mp_transfer_status?: string;
+  transfer_error?: string;
+  transferred_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StoreBalance {
+  store_domain: string;
+  pending_amount: number;
+  transferred_amount: number;
+  failed_amount: number;
+  pending_count: number;
+  transferred_count: number;
+  last_transfer_at?: string;
+  updated_at: string;
+}
+
+export interface StoreMPConnection {
+  mp_user_id?: string;
+  mp_email?: string;
+  mp_connected_at?: string;
+  mp_token_expires_at?: string;
+  commission_rate: number;
+}
