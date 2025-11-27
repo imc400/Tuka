@@ -1,6 +1,7 @@
 -- =====================================================
 -- Migration: Performance Indexes for Supabase Pro
 -- Optimizes queries for dashboard analytics and app performance
+-- Safe: Only creates indexes on tables that exist
 -- =====================================================
 
 -- =====================================================
@@ -80,18 +81,26 @@ WHERE is_active = true;
 -- 5. Cart Items - Checkout performance
 -- =====================================================
 
--- User's cart items
-CREATE INDEX IF NOT EXISTS idx_cart_items_user
-ON cart_items(user_id, created_at DESC);
+-- User's cart items (only if table exists)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cart_items') THEN
+    CREATE INDEX IF NOT EXISTS idx_cart_items_user ON cart_items(user_id, created_at DESC);
+  END IF;
+END $$;
 
 -- =====================================================
--- 6. Store Payments - Admin dashboard
+-- 6. Store Payments - Admin dashboard (only if table exists)
 -- =====================================================
 
--- Pending payments by store
-CREATE INDEX IF NOT EXISTS idx_store_payments_pending
-ON store_payments(store_domain, created_at DESC)
-WHERE status = 'pending';
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'store_payments') THEN
+    CREATE INDEX IF NOT EXISTS idx_store_payments_pending
+    ON store_payments(store_domain, created_at DESC)
+    WHERE status = 'pending';
+  END IF;
+END $$;
 
 -- =====================================================
 -- 7. Notifications - Campaign analytics
@@ -102,43 +111,47 @@ CREATE INDEX IF NOT EXISTS idx_notifications_store_recent
 ON notifications_sent(store_id, sent_at DESC);
 
 -- =====================================================
--- 8. Shipping - Checkout performance
+-- 8. Shipping - Checkout performance (only if tables exist)
 -- =====================================================
 
--- Active zones by store
-CREATE INDEX IF NOT EXISTS idx_shipping_zones_store_active
-ON shipping_zones(store_domain)
-WHERE is_active = true;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'shipping_zones') THEN
+    CREATE INDEX IF NOT EXISTS idx_shipping_zones_store_active
+    ON shipping_zones(store_domain)
+    WHERE is_active = true;
+  END IF;
 
--- Methods by zone
-CREATE INDEX IF NOT EXISTS idx_shipping_methods_zone_active
-ON shipping_methods(zone_id)
-WHERE is_active = true;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'shipping_methods') THEN
+    CREATE INDEX IF NOT EXISTS idx_shipping_methods_zone_active
+    ON shipping_methods(zone_id)
+    WHERE is_active = true;
+  END IF;
+END $$;
 
 -- =====================================================
--- 9. Collections - Browse performance
+-- 9. Collections - Browse performance (only if table exists)
 -- =====================================================
 
--- Collections by store
-CREATE INDEX IF NOT EXISTS idx_collections_store
-ON store_collections(store_domain, position);
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'store_collections') THEN
+    CREATE INDEX IF NOT EXISTS idx_collections_store
+    ON store_collections(store_domain, position);
+  END IF;
+END $$;
 
 -- =====================================================
 -- 10. Analyze tables for query planner
 -- =====================================================
 
--- Update statistics for query optimization
+-- Update statistics for query optimization (core tables only)
 ANALYZE products;
 ANALYZE transactions;
 ANALYZE shopify_orders;
 ANALYZE store_subscriptions;
 ANALYZE push_tokens;
-ANALYZE cart_items;
-ANALYZE store_payments;
 ANALYZE notifications_sent;
-ANALYZE shipping_zones;
-ANALYZE shipping_methods;
-ANALYZE store_collections;
 
 -- =====================================================
 -- COMMENTS
