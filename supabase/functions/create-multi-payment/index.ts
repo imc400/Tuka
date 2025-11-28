@@ -129,8 +129,8 @@ serve(async (req) => {
       const shippingCost = shippingCosts?.[storeDomain]?.price || 0;
       const totalAmount = itemsAmount + shippingCost;
 
-      // Calcular commission de Grumo (default 10%)
-      const commissionRate = store.commission_rate || 0.10;
+      // Calcular commission de Grumo (usa el rate configurado, 0 si no hay)
+      const commissionRate = store.commission_rate ?? 0;
       const applicationFee = Math.round(totalAmount * commissionRate);
 
       console.log(`Store ${storeDomain}: amount=${totalAmount}, fee=${applicationFee}`);
