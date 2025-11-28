@@ -149,7 +149,7 @@ export default function LoginPage({ onAuthSuccess }: LoginPageProps) {
             }
 
             await supabase.auth.signOut();
-            setSuccess('Solicitud creada exitosamente. El administrador debe aprobar tu acceso.');
+            setSuccess('¡Cuenta creada con éxito! El administrador debe aprobar tu acceso y asignarte una tienda. Para consultas: hola@grumo.app');
             setMode('login');
             resetForm();
             return;
@@ -170,7 +170,7 @@ export default function LoginPage({ onAuthSuccess }: LoginPageProps) {
           is_active: false,
         });
 
-        setSuccess('Cuenta creada exitosamente. El administrador debe aprobar tu acceso.');
+        setSuccess('¡Cuenta creada con éxito! El administrador debe aprobar tu acceso y asignarte una tienda. Para consultas: hola@grumo.app');
         setMode('login');
         resetForm();
       }
