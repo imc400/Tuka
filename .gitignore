@@ -46,10 +46,10 @@ coverage/
 credentials.json
 /ios
 
-# Temporary files and screenshots
-*.PNG
-*.png.bak
+# Temporary files and screenshots (root level only)
+/*.PNG
+/*.png.bak
 "Copia de Branding Grumo/"
 
-# Landing Page (will be integrated into main project)
+# Landing Page source (integrated into main project)
 "Landing Page/"

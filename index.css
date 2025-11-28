@@ -1,4 +1,102 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    @apply font-sans bg-white text-gray-900;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-indigo-600;
+  }
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom animations for landing page */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* Push notification slide-in animations */
+@keyframes slideInNotification1 {
+  0%, 100% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  5%, 95% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInNotification2 {
+  0%, 20%, 100% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  25%, 95% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInNotification3 {
+  0%, 40%, 100% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  45%, 95% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 4s ease-in-out infinite;
+}
+
+.animate-notification-1 {
+  animation: slideInNotification1 8s ease-in-out infinite;
+}
+
+.animate-notification-2 {
+  animation: slideInNotification2 8s ease-in-out infinite;
+}
+
+.animate-notification-3 {
+  animation: slideInNotification3 8s ease-in-out infinite;
+}
+
+/* Backdrop blur support */
+@supports (backdrop-filter: blur(10px)) {
+  .backdrop-blur-sm {
+    backdrop-filter: blur(10px);
+  }
+}

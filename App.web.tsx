@@ -1,15 +1,19 @@
 /**
- * Grumo Admin Dashboard - Web Version
+ * Grumo Web Application
  *
- * Dashboard con autenticación:
- * - Super Admin (hola@grumo.app): Acceso total
- * - Store Owners: Acceso a tiendas asignadas
+ * Main entry point for the web version:
+ * - Landing Page: grumo.app (/)
+ * - Admin Dashboard: grumo.app/admin (/admin)
  *
- * @version 5.0.0
+ * @version 6.0.0
  */
 
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './index.css';
+
+// Landing Page
+import { LandingPage } from './src/web/landing';
 
 // Auth
 import { WebAuthProvider, useWebAuth } from './src/web/context/WebAuthContext';
@@ -21,9 +25,9 @@ import type { Store, DashboardView } from './src/web/types';
 import { supabaseWeb as supabase } from './src/lib/supabaseWeb';
 import { Loader2 } from 'lucide-react';
 
-// Main App with Auth
-const AuthenticatedApp = () => {
-  const { user, adminUser, loading, isSuperAdmin, canAccessStore, signOut } = useWebAuth();
+// Admin Dashboard with Auth
+const AdminDashboard = () => {
+  const { user, adminUser, loading, isSuperAdmin, signOut } = useWebAuth();
   const [view, setView] = useState<DashboardView>('stores');
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
   const [assignedStores, setAssignedStores] = useState<Store[]>([]);
@@ -232,13 +236,36 @@ const AuthenticatedApp = () => {
   );
 };
 
-// Wrap with Auth Provider
-const AdminApp = () => {
+// Admin Route with Auth Provider
+const AdminRoute = () => {
   return (
     <WebAuthProvider>
-      <AuthenticatedApp />
+      <AdminDashboard />
     </WebAuthProvider>
   );
 };
 
-export default AdminApp;
+// Main App with Router
+const App = () => {
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Landing Page */}
+        <Route path="/" element={<LandingPage />} />
+
+        {/* Admin Dashboard */}
+        <Route path="/admin" element={<AdminRoute />} />
+        <Route path="/admin/*" element={<AdminRoute />} />
+
+        {/* Legacy redirect: /dashboard -> /admin */}
+        <Route path="/dashboard" element={<Navigate to="/admin" replace />} />
+        <Route path="/dashboard/*" element={<Navigate to="/admin" replace />} />
+
+        {/* Catch all - redirect to landing */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+};
+
+export default App;
