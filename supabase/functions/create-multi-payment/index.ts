@@ -135,29 +135,38 @@ serve(async (req) => {
 
       console.log(`Store ${storeDomain}: amount=${totalAmount}, fee=${applicationFee}`);
 
+      // Construir items para MP (productos + envío)
+      const mpItems = items.map((item) => ({
+        id: item.id,
+        title: item.name,
+        description: `${item.name} - ${store.store_name}`,
+        category_id: 'marketplace',
+        quantity: item.quantity,
+        unit_price: item.selectedVariant?.price || item.price,
+        currency_id: 'CLP',
+      }));
+
+      // Agregar envío como item adicional para asegurar que se cobre
+      if (shippingCost > 0) {
+        mpItems.push({
+          id: `shipping-${storeDomain}`,
+          title: `Envío - ${store.store_name}`,
+          description: shippingCosts?.[storeDomain]?.title || 'Costo de envío',
+          category_id: 'shipping',
+          quantity: 1,
+          unit_price: shippingCost,
+          currency_id: 'CLP',
+        });
+      }
+
       // Construir preferencia de MP
       const preferenceBody: any = {
-        items: items.map((item) => ({
-          id: item.id,
-          title: item.name,
-          description: `${item.name} - ${store.store_name}`,
-          category_id: 'marketplace',
-          quantity: item.quantity,
-          unit_price: item.selectedVariant?.price || item.price,
-          currency_id: 'CLP',
-        })),
+        items: mpItems,
         payer: {
           name: buyerInfo.name,
           email: buyerInfo.email,
           phone: { number: buyerInfo.phone },
         },
-        // Agregar línea de envío si existe
-        ...(shippingCost > 0 && {
-          shipments: {
-            cost: shippingCost,
-            mode: 'not_specified',
-          },
-        }),
         back_urls: {
           success: `${baseBackUrl}/payment/success?store=${storeDomain}&tx=${transactionId}`,
           failure: `${baseBackUrl}/payment/failure?store=${storeDomain}&tx=${transactionId}`,

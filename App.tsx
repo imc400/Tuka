@@ -42,7 +42,9 @@ import {
   type SelectedShippingRates
 } from './src/services/shippingService';
 import {
-  createMercadoPagoPreference,
+  createMultiPaymentPreferences,
+  processMultiPayments,
+  checkMultiPaymentStatus,
   openMercadoPagoCheckout,
   checkPaymentStatus
 } from './src/services/mercadopagoService';
@@ -884,8 +886,19 @@ function AppContent() {
 
       setCurrentTransactionId(result.transactionId);
 
-      // 2. Crear preferencia de MercadoPago
-      const mpResult = await createMercadoPagoPreference(
+      // 2. Crear preferencias de MercadoPago (modelo multi-payment con split)
+      // Convertir selectedShippingRates al formato esperado por el servicio
+      const shippingCostsForMP: Record<string, { price: number; title: string }> = {};
+      Object.entries(selectedShippingRates).forEach(([domain, rate]) => {
+        // Limpiar prefijo "real-" si existe
+        const cleanDomain = domain.replace(/^real-/, '');
+        shippingCostsForMP[cleanDomain] = {
+          price: rate.price,
+          title: rate.title,
+        };
+      });
+
+      const mpResult = await createMultiPaymentPreferences(
         cart,
         {
           name: fullName,
@@ -893,17 +906,19 @@ function AppContent() {
           phone: phone
         },
         result.transactionId,
-        false
+        shippingCostsForMP
       );
 
-      if (!mpResult.success || !mpResult.initPoint) {
-        Alert.alert('Error', mpResult.error || 'No se pudo iniciar el pago');
+      if (!mpResult || !mpResult.preferences || mpResult.preferences.length === 0) {
+        Alert.alert('Error', 'No se pudo iniciar el pago');
         setIsProcessingPayment(false);
         return;
       }
 
-      // 3. Abrir checkout de MercadoPago
-      const checkoutResult = await openMercadoPagoCheckout(mpResult.initPoint);
+      // 3. Procesar pagos (uno por tienda)
+      // Para una sola tienda, solo hay una preferencia
+      const preference = mpResult.preferences[0];
+      const checkoutResult = await openMercadoPagoCheckout(preference.initPoint);
 
       if (!checkoutResult.success) {
         Alert.alert('Pago Cancelado', 'El pago fue cancelado');
@@ -911,9 +926,10 @@ function AppContent() {
         return;
       }
 
-      // 4. Verificar estado del pago
-      // El webhook ya habrá actualizado el estado, pero lo verificamos
-      const paymentStatus = await checkPaymentStatus(result.transactionId);
+      // 4. Verificar estado del pago (usar multi-payment status)
+      // Dar un momento para que el webhook procese
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const paymentStatus = await checkMultiPaymentStatus(result.transactionId);
 
       if (paymentStatus.status === 'approved') {
         // Guardar dirección del checkout si el usuario está logueado
