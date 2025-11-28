@@ -251,7 +251,7 @@ export default function PaymentsTab({ store }: PaymentsTabProps) {
             <p className="text-white/90 text-sm">
               Cada venta se deposita directamente en tu cuenta de Mercado Pago.
               Sin esperas, sin transferencias pendientes. Grumo cobra automáticamente
-              su comisión ({((store.commission_rate || 0.1) * 100).toFixed(0)}%) y tú recibes el resto al instante.
+              su comisión ({((store.commission_rate ?? 0) * 100).toFixed(0)}%) y tú recibes el resto al instante.
             </p>
           </div>
         </div>
@@ -312,7 +312,7 @@ export default function PaymentsTab({ store }: PaymentsTabProps) {
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-gray-500 mb-1">Comisión Grumo</p>
                   <p className="text-sm text-gray-700">
-                    {((store.commission_rate || 0.1) * 100).toFixed(0)}% por venta
+                    {((store.commission_rate ?? 0) * 100).toFixed(0)}% por venta
                   </p>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg">
@@ -540,7 +540,7 @@ export default function PaymentsTab({ store }: PaymentsTabProps) {
             <p className="font-medium text-blue-900">¿Cómo funcionan los pagos?</p>
             <ul className="text-sm text-blue-700 mt-2 space-y-1 list-disc list-inside">
               <li>Cuando un cliente compra en tu tienda, el pago va directo a tu cuenta de MP</li>
-              <li>Grumo cobra automáticamente su comisión ({((store.commission_rate || 0.1) * 100).toFixed(0)}%)</li>
+              <li>Grumo cobra automáticamente su comisión ({((store.commission_rate ?? 0) * 100).toFixed(0)}%)</li>
               <li>Tú recibes el monto neto al instante, sin esperas</li>
               <li>Mercado Pago también cobra su fee estándar (varía según método de pago)</li>
             </ul>
