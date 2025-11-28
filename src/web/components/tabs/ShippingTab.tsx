@@ -57,7 +57,9 @@ interface ShippingMethod {
   sort_order: number;
   is_active: boolean;
   rates: ShippingRate[];
+  applies_to_communes: string[] | null; // null = todas las comunas
   isExpanded?: boolean;
+  showCommuneSelector?: boolean;
 }
 
 interface ShippingRate {
@@ -203,7 +205,9 @@ export default function ShippingTab({ store }: ShippingTabProps) {
                 return {
                   ...method,
                   rates: ratesData || [],
+                  applies_to_communes: method.applies_to_communes || null,
                   isExpanded: false,
+                  showCommuneSelector: false,
                 };
               })
             );
@@ -370,6 +374,7 @@ export default function ShippingTab({ store }: ShippingTabProps) {
                 estimated_delivery: method.estimated_delivery,
                 sort_order: method.sort_order,
                 is_active: method.is_active,
+                applies_to_communes: method.applies_to_communes,
               })
               .select()
               .single();
@@ -485,6 +490,9 @@ export default function ShippingTab({ store }: ShippingTabProps) {
                 is_active: true,
               },
             ],
+            applies_to_communes: null, // null = todas las comunas
+            isExpanded: false,
+            showCommuneSelector: false,
           },
         ],
         commune_rates: communeRates,
@@ -533,6 +541,9 @@ export default function ShippingTab({ store }: ShippingTabProps) {
               is_active: true,
             },
           ],
+          applies_to_communes: null,
+          isExpanded: false,
+          showCommuneSelector: false,
         },
       ],
       commune_rates: region.communes.map((commune) => ({
@@ -579,7 +590,9 @@ export default function ShippingTab({ store }: ShippingTabProps) {
                   is_active: true,
                 },
               ],
+              applies_to_communes: null,
               isExpanded: true,
+              showCommuneSelector: false,
             },
           ],
         };
@@ -622,6 +635,53 @@ export default function ShippingTab({ store }: ShippingTabProps) {
           methods: zone.methods.map((m) =>
             m.code === methodCode ? { ...m, isExpanded: !m.isExpanded } : m
           ),
+        };
+      })
+    );
+  }
+
+  function toggleMethodCommuneSelector(regionCode: string, methodCode: string) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          methods: zone.methods.map((m) =>
+            m.code === methodCode ? { ...m, showCommuneSelector: !m.showCommuneSelector } : m
+          ),
+        };
+      })
+    );
+  }
+
+  function updateMethodCommunes(regionCode: string, methodCode: string, communes: string[] | null) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          methods: zone.methods.map((m) =>
+            m.code === methodCode ? { ...m, applies_to_communes: communes } : m
+          ),
+        };
+      })
+    );
+  }
+
+  function toggleCommuneInMethod(regionCode: string, methodCode: string, communeCode: string) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          methods: zone.methods.map((m) => {
+            if (m.code !== methodCode) return m;
+            const current = m.applies_to_communes || [];
+            const updated = current.includes(communeCode)
+              ? current.filter((c) => c !== communeCode)
+              : [...current, communeCode];
+            return { ...m, applies_to_communes: updated.length > 0 ? updated : null };
+          }),
         };
       })
     );
@@ -1142,6 +1202,83 @@ export default function ShippingTab({ store }: ShippingTabProps) {
                                           placeholder="Ej: 1-2 días, Hoy, Al momento de pagar..."
                                         />
                                       </div>
+                                    </div>
+
+                                    {/* Selector de comunas */}
+                                    <div className="pt-2 border-t border-blue-200">
+                                      <div
+                                        className="flex items-center justify-between cursor-pointer"
+                                        onClick={() => toggleMethodCommuneSelector(zone.region_code, method.code)}
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <MapPin size={14} className="text-blue-600" />
+                                          <span className="text-xs font-medium text-gray-700">
+                                            Aplica a comunas:
+                                          </span>
+                                          <span className="text-xs text-blue-600 font-medium">
+                                            {method.applies_to_communes === null
+                                              ? 'Todas las comunas'
+                                              : `${method.applies_to_communes.length} comuna${method.applies_to_communes.length !== 1 ? 's' : ''} seleccionada${method.applies_to_communes.length !== 1 ? 's' : ''}`}
+                                          </span>
+                                        </div>
+                                        <span className="text-xs text-blue-500">
+                                          {method.showCommuneSelector ? '▲ Ocultar' : '▼ Seleccionar'}
+                                        </span>
+                                      </div>
+
+                                      {method.showCommuneSelector && (
+                                        <div className="mt-3 p-3 bg-white rounded-lg border border-blue-200 max-h-48 overflow-y-auto">
+                                          <div className="flex items-center justify-between mb-2">
+                                            <button
+                                              onClick={() => updateMethodCommunes(zone.region_code, method.code, null)}
+                                              className={`text-xs px-2 py-1 rounded ${
+                                                method.applies_to_communes === null
+                                                  ? 'bg-blue-600 text-white'
+                                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                              }`}
+                                            >
+                                              Todas
+                                            </button>
+                                            <button
+                                              onClick={() => updateMethodCommunes(zone.region_code, method.code, [])}
+                                              className="text-xs text-gray-500 hover:text-gray-700"
+                                            >
+                                              Limpiar selección
+                                            </button>
+                                          </div>
+                                          <div className="grid grid-cols-2 md:grid-cols-3 gap-1">
+                                            {(() => {
+                                              const region = getRegionByCode(zone.region_code);
+                                              return region?.communes.map((commune) => {
+                                                const isSelected = method.applies_to_communes === null || method.applies_to_communes.includes(commune.code);
+                                                return (
+                                                  <button
+                                                    key={commune.code}
+                                                    onClick={() => {
+                                                      if (method.applies_to_communes === null) {
+                                                        // Si está en "todas", cambiar a solo esta comuna
+                                                        updateMethodCommunes(zone.region_code, method.code, [commune.code]);
+                                                      } else {
+                                                        toggleCommuneInMethod(zone.region_code, method.code, commune.code);
+                                                      }
+                                                    }}
+                                                    className={`text-xs px-2 py-1.5 rounded text-left truncate ${
+                                                      isSelected && method.applies_to_communes !== null
+                                                        ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                                                        : method.applies_to_communes === null
+                                                        ? 'bg-blue-50 text-blue-600 border border-blue-200'
+                                                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                                                    }`}
+                                                    title={commune.name}
+                                                  >
+                                                    {commune.name}
+                                                  </button>
+                                                );
+                                              });
+                                            })()}
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
 
