@@ -48,6 +48,10 @@ interface GlobalStats {
   totalSubscribers: number;
   totalProducts: number;
   totalNotifications: number;
+  // Grumo earnings (application_fee from approved payments)
+  grumoEarningsInPeriod: number;
+  grumoEarningsTotal: number;
+  grumoEarningsChange: number;
   // Per-store breakdown
   storeStats: StoreStats[];
 }
@@ -151,6 +155,10 @@ export default function GlobalAnalyticsTab({ stores, onOpenStoreDashboard, onRef
         allOrdersResult,
         subscribersResult,
         notificationsResult,
+        // Grumo earnings queries
+        grumoEarningsCurrentResult,
+        grumoEarningsPrevResult,
+        grumoEarningsTotalResult,
       ] = await Promise.all([
         // Orders in current period
         supabase
@@ -182,6 +190,25 @@ export default function GlobalAnalyticsTab({ stores, onOpenStoreDashboard, onRef
           .from('notifications_sent')
           .select('id, store_id')
           .in('store_id', storeDomainsArr),
+        // Grumo earnings in current period (approved payments only)
+        supabase
+          .from('store_payments_v2')
+          .select('application_fee, paid_at')
+          .eq('status', 'approved')
+          .gte('paid_at', dateRange.start.toISOString())
+          .lt('paid_at', dateRange.end.toISOString()),
+        // Grumo earnings in previous period
+        supabase
+          .from('store_payments_v2')
+          .select('application_fee, paid_at')
+          .eq('status', 'approved')
+          .gte('paid_at', prevPeriod.start.toISOString())
+          .lt('paid_at', prevPeriod.end.toISOString()),
+        // Grumo earnings total (all time)
+        supabase
+          .from('store_payments_v2')
+          .select('application_fee')
+          .eq('status', 'approved'),
       ]);
 
       // Get product counts per store (separate queries to avoid 1000 row limit)
@@ -199,6 +226,9 @@ export default function GlobalAnalyticsTab({ stores, onOpenStoreDashboard, onRef
       const allOrders = allOrdersResult.data || [];
       const subscribers = subscribersResult.data || [];
       const notifications = notificationsResult.data || [];
+      const grumoEarningsCurrent = grumoEarningsCurrentResult.data || [];
+      const grumoEarningsPrev = grumoEarningsPrevResult.data || [];
+      const grumoEarningsAll = grumoEarningsTotalResult.data || [];
 
       // Build product counts map
       const productCountsMap: Record<string, number> = {};
@@ -219,6 +249,14 @@ export default function GlobalAnalyticsTab({ stores, onOpenStoreDashboard, onRef
       const ordersChange = prevOrders.length > 0
         ? ((currentOrders.length - prevOrders.length) / prevOrders.length) * 100
         : currentOrders.length > 0 ? 100 : 0;
+
+      // Calculate Grumo earnings
+      const grumoEarningsInPeriod = grumoEarningsCurrent.reduce((sum, p) => sum + (p.application_fee || 0), 0);
+      const grumoEarningsPrevPeriod = grumoEarningsPrev.reduce((sum, p) => sum + (p.application_fee || 0), 0);
+      const grumoEarningsTotal = grumoEarningsAll.reduce((sum, p) => sum + (p.application_fee || 0), 0);
+      const grumoEarningsChange = grumoEarningsPrevPeriod > 0
+        ? ((grumoEarningsInPeriod - grumoEarningsPrevPeriod) / grumoEarningsPrevPeriod) * 100
+        : grumoEarningsInPeriod > 0 ? 100 : 0;
 
       // Per-store breakdown
       const storeStatsMap: Record<string, StoreStats> = {};
@@ -277,6 +315,9 @@ export default function GlobalAnalyticsTab({ stores, onOpenStoreDashboard, onRef
         totalSubscribers: subscribers.length,
         totalProducts: totalProductsCount,
         totalNotifications: notifications.length,
+        grumoEarningsInPeriod,
+        grumoEarningsTotal,
+        grumoEarningsChange,
         storeStats: storeStatsArr,
       });
     } catch (error) {
@@ -374,6 +415,37 @@ export default function GlobalAnalyticsTab({ stores, onOpenStoreDashboard, onRef
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             Actualizar
           </button>
+        </div>
+      </div>
+
+      {/* Grumo Earnings Card - Highlighted */}
+      <div className="bg-gradient-to-r from-purple-600 via-purple-700 to-indigo-700 rounded-2xl p-6 text-white shadow-lg">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+              <img src="/grumo-isotipo-trimmed.png" alt="Grumo" className="w-8 h-8" />
+            </div>
+            <div>
+              <p className="text-purple-200 text-sm font-medium">Ingresos Grumo</p>
+              <p className="text-3xl font-bold">{formatCurrency(stats.grumoEarningsInPeriod)}</p>
+              <p className="text-purple-200 text-xs mt-1">
+                Total histórico: {formatCurrency(stats.grumoEarningsTotal)}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            {stats.grumoEarningsChange !== 0 && (
+              <span className={`flex items-center gap-1 text-sm px-3 py-1.5 rounded-full ${
+                stats.grumoEarningsChange > 0
+                  ? 'bg-green-500/30 text-green-100'
+                  : 'bg-red-500/30 text-red-100'
+              }`}>
+                {stats.grumoEarningsChange > 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                {Math.abs(stats.grumoEarningsChange).toFixed(0)}% vs período anterior
+              </span>
+            )}
+            <p className="text-purple-200 text-xs">{dateRange.label}</p>
+          </div>
         </div>
       </div>
 
