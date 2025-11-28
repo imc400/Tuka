@@ -35,27 +35,69 @@ export function CollectionsMenu({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+    let timeoutId: NodeJS.Timeout;
+
+    const loadCollections = async () => {
+      // Validar storeId
+      if (!storeId || storeId <= 0) {
+        console.log('[CollectionsMenu] Invalid storeId:', storeId);
+        if (isMounted) {
+          setLoading(false);
+          setCollections([]);
+        }
+        return;
+      }
+
+      try {
+        console.log('[CollectionsMenu] Loading collections for store:', storeId);
+
+        // Timeout de 8 segundos para evitar carga infinita
+        timeoutId = setTimeout(() => {
+          if (isMounted && loading) {
+            console.warn('[CollectionsMenu] Timeout loading collections');
+            setLoading(false);
+            setCollections([]);
+          }
+        }, 8000);
+
+        const { data, error } = await supabase
+          .from('store_collections')
+          .select('*')
+          .eq('store_id', storeId)
+          .eq('is_active', true)
+          .order('display_order', { ascending: true });
+
+        clearTimeout(timeoutId);
+
+        if (error) {
+          console.error('[CollectionsMenu] Supabase error:', error);
+          throw error;
+        }
+
+        console.log('[CollectionsMenu] Loaded', data?.length || 0, 'collections');
+
+        if (isMounted) {
+          setCollections(data || []);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error('[CollectionsMenu] Error loading collections:', err);
+        if (isMounted) {
+          setCollections([]);
+          setLoading(false);
+        }
+      }
+    };
+
+    setLoading(true);
     loadCollections();
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [storeId]);
-
-  const loadCollections = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('store_collections')
-        .select('*')
-        .eq('store_id', storeId)
-        .eq('is_active', true)
-        .order('display_order', { ascending: true });
-
-      if (error) throw error;
-      setCollections(data || []);
-    } catch (err) {
-      console.error('Error loading collections:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Si no hay colecciones configuradas, no mostrar nada
   if (!loading && collections.length === 0) {
