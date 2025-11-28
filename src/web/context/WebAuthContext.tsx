@@ -48,7 +48,6 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
-    let isInitialLoad = true;
 
     async function initAuth() {
       try {
@@ -68,7 +67,7 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
       } finally {
         if (isMounted) {
           setLoading(false);
-          isInitialLoad = false;
+          setInitialized(true);
         }
       }
     }
@@ -77,25 +76,28 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (event, newSession) => {
         if (!isMounted) return;
 
         console.log('[WebAuth] Auth state changed:', event);
 
-        // Skip events during initial load
-        if (isInitialLoad) {
-          console.log('[WebAuth] Skipping event during initial load');
+        // Ignore TOKEN_REFRESHED events - they don't change auth state
+        if (event === 'TOKEN_REFRESHED') {
           return;
         }
 
-        setSession(session);
-        setUser(session?.user ?? null);
+        // For SIGNED_IN, update state
+        if (event === 'SIGNED_IN' && newSession?.user) {
+          setSession(newSession);
+          setUser(newSession.user);
+          // Don't set loading here - let the component handle it
+          await loadAdminUser(newSession.user.id);
+        }
 
-        if (session?.user) {
-          setLoading(true);
-          await loadAdminUser(session.user.id);
-          setLoading(false);
-        } else {
+        // For SIGNED_OUT, clear state
+        if (event === 'SIGNED_OUT') {
+          setSession(null);
+          setUser(null);
           setAdminUser(null);
         }
       }
