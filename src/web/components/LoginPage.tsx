@@ -21,6 +21,7 @@ import {
   Shield,
 } from 'lucide-react';
 import { supabaseWeb as supabase } from '../../lib/supabaseWeb';
+import { useWebAuth } from '../context/WebAuthContext';
 
 type AuthMode = 'login' | 'signup' | 'forgot';
 
@@ -29,6 +30,7 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ onAuthSuccess }: LoginPageProps) {
+  const { signIn, loading: authLoading } = useWebAuth();
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -51,58 +53,18 @@ export default function LoginPage({ onAuthSuccess }: LoginPageProps) {
     setLoading(true);
     setError('');
 
-    try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.toLowerCase().trim(),
-        password,
-      });
+    // Use centralized signIn from context - handles all validation
+    const { error: loginError } = await signIn(email, password);
 
-      if (authError) {
-        if (authError.message.includes('Invalid login credentials')) {
-          setError('Email o contraseña incorrectos');
-        } else if (authError.message.includes('Email not confirmed')) {
-          setError('Por favor confirma tu email antes de iniciar sesión');
-        } else {
-          setError(authError.message);
-        }
-        return;
-      }
-
-      if (data.user) {
-        // Check if user has dashboard access
-        const { data: adminUser, error: adminError } = await supabase
-          .from('admin_users')
-          .select('*')
-          .eq('user_id', data.user.id)
-          .single();
-
-        if (adminError || !adminUser) {
-          // User doesn't have an admin_users entry at all
-          setError('No tienes acceso al dashboard. Si quieres administrar una tienda, crea una cuenta usando "Regístrate".');
-          // Sign out after showing message (delay to ensure message is visible)
-          setTimeout(async () => {
-            await supabase.auth.signOut();
-          }, 100);
-          return;
-        }
-
-        if (!adminUser.is_active) {
-          // User has entry but is pending approval
-          setError('Tu cuenta está pendiente de aprobación. Te notificaremos cuando tengas acceso. Para consultas: hola@grumo.app');
-          // Sign out after showing message (delay to ensure message is visible)
-          setTimeout(async () => {
-            await supabase.auth.signOut();
-          }, 100);
-          return;
-        }
-
-        onAuthSuccess();
-      }
-    } catch (err: any) {
-      setError('Error al iniciar sesión');
-    } finally {
+    if (loginError) {
+      setError(loginError);
       setLoading(false);
+      return;
     }
+
+    // Success! Context already updated state, trigger navigation
+    setLoading(false);
+    onAuthSuccess();
   };
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -405,10 +367,10 @@ export default function LoginPage({ onAuthSuccess }: LoginPageProps) {
 
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || authLoading}
                   className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-purple-600 text-white font-semibold rounded-xl hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {loading ? (
+                  {(loading || authLoading) ? (
                     <Loader2 size={20} className="animate-spin" />
                   ) : (
                     <>
