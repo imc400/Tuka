@@ -235,7 +235,12 @@ export async function getStoreNamesMap(): Promise<Record<string, string>> {
  * Obtener nombre de tienda dado un dominio
  * Retorna el nombre configurado o formatea el dominio si no existe
  */
-export function getStoreName(domain: string, storeNamesMap: Record<string, string>): string {
+export function getStoreName(domain: string | null | undefined, storeNamesMap: Record<string, string>): string {
+  // Si no hay dominio, retornar valor por defecto
+  if (!domain) {
+    return 'Tienda';
+  }
+
   // Buscar por dominio completo
   if (storeNamesMap[domain]) {
     return storeNamesMap[domain];
