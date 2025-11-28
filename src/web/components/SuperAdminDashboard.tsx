@@ -24,6 +24,7 @@ import {
   ArrowDownRight,
   ExternalLink,
   Loader2,
+  LogOut,
 } from 'lucide-react';
 import { supabaseWeb as supabase } from '../../lib/supabaseWeb';
 import type { Store as StoreType } from '../types';
@@ -32,11 +33,13 @@ import type { Store as StoreType } from '../types';
 import GlobalAnalyticsTab from './tabs/admin/GlobalAnalyticsTab';
 import StoresManagementTab from './tabs/admin/StoresManagementTab';
 import MassNotificationsTab from './tabs/admin/MassNotificationsTab';
+import UsersManagementTab from './tabs/admin/UsersManagementTab';
 
-type AdminTabType = 'dashboard' | 'stores' | 'notifications' | 'settings';
+type AdminTabType = 'dashboard' | 'stores' | 'users' | 'notifications' | 'settings';
 
 interface SuperAdminDashboardProps {
   onOpenStoreDashboard: (store: StoreType) => void;
+  onSignOut: () => void;
 }
 
 // Menu sections for sidebar
@@ -51,6 +54,7 @@ const MENU_SECTIONS = [
     title: 'Gestión',
     items: [
       { id: 'stores' as AdminTabType, label: 'Tiendas', icon: Store, description: 'Administrar tiendas' },
+      { id: 'users' as AdminTabType, label: 'Usuarios', icon: Users, description: 'Gestionar accesos' },
       { id: 'notifications' as AdminTabType, label: 'Notificaciones', icon: Bell, description: 'Push masivo' },
     ],
   },
@@ -62,7 +66,7 @@ const MENU_SECTIONS = [
   },
 ];
 
-export default function SuperAdminDashboard({ onOpenStoreDashboard }: SuperAdminDashboardProps) {
+export default function SuperAdminDashboard({ onOpenStoreDashboard, onSignOut }: SuperAdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminTabType>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [stores, setStores] = useState<StoreType[]>([]);
@@ -102,6 +106,8 @@ export default function SuperAdminDashboard({ onOpenStoreDashboard }: SuperAdmin
         );
       case 'notifications':
         return <MassNotificationsTab stores={stores} />;
+      case 'users':
+        return <UsersManagementTab stores={stores} />;
       case 'settings':
         return (
           <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
@@ -199,7 +205,7 @@ export default function SuperAdminDashboard({ onOpenStoreDashboard }: SuperAdmin
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="p-4 border-t border-gray-200">
+        <div className="p-4 border-t border-gray-200 space-y-2">
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
@@ -209,6 +215,13 @@ export default function SuperAdminDashboard({ onOpenStoreDashboard }: SuperAdmin
               className={`transition-transform ${sidebarCollapsed ? '' : 'rotate-180'}`}
             />
             {!sidebarCollapsed && <span className="text-sm">Colapsar</span>}
+          </button>
+          <button
+            onClick={onSignOut}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+          >
+            <LogOut size={18} />
+            {!sidebarCollapsed && <span className="text-sm">Cerrar sesión</span>}
           </button>
         </div>
       </aside>

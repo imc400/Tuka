@@ -45,3 +45,11 @@ coverage/
 *.key
 credentials.json
 /ios
+
+# Temporary files and screenshots
+*.PNG
+*.png.bak
+"Copia de Branding Grumo/"
+
+# Landing Page (will be integrated into main project)
+"Landing Page/"
