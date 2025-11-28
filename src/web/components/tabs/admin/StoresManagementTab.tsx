@@ -651,7 +651,7 @@ export default function StoresManagementTab({
                     ? 'bg-green-100 text-green-700'
                     : 'bg-purple-100 text-purple-700'
                 }`}>
-                  {((store.commission_rate || 0) * 100).toFixed(0)}% comisión
+                  {((store.commission_rate || 0) * 100).toFixed(1).replace(/\.0$/, '')}% comisión
                 </span>
               </div>
 
