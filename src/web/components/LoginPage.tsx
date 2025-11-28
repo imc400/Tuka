@@ -74,12 +74,19 @@ export default function LoginPage({ onAuthSuccess }: LoginPageProps) {
           .from('admin_users')
           .select('*')
           .eq('user_id', data.user.id)
-          .eq('is_active', true)
           .single();
 
         if (adminError || !adminUser) {
+          // User doesn't have an admin_users entry at all
           await supabase.auth.signOut();
-          setError('No tienes acceso al dashboard. Contacta al administrador.');
+          setError('No tienes acceso al dashboard. Si quieres administrar una tienda, crea una cuenta usando "Regístrate".');
+          return;
+        }
+
+        if (!adminUser.is_active) {
+          // User has entry but is pending approval
+          await supabase.auth.signOut();
+          setError('Tu cuenta está pendiente de aprobación. Te notificaremos cuando tengas acceso. Para consultas: hola@grumo.app');
           return;
         }
 
