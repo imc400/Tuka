@@ -177,8 +177,8 @@ serve(async (req) => {
         external_reference: `${transactionId}|${storeDomain}`,
         notification_url: `${supabaseUrl}/functions/v1/mp-webhook-multi`,
         statement_descriptor: 'Grumo',
-        // APPLICATION FEE - La comisión de Grumo
-        marketplace_fee: applicationFee,
+        // APPLICATION FEE - La comisión de Grumo (solo si el vendedor tiene access_token)
+        ...(store.mp_access_token && applicationFee > 0 && { marketplace_fee: applicationFee }),
         metadata: {
           transaction_id: transactionId,
           store_domain: storeDomain,
@@ -188,24 +188,27 @@ serve(async (req) => {
         },
       };
 
-      // Si la tienda tiene collector_id, usarlo para que reciba el pago directo
-      // Si no, el pago va a Grumo (fallback)
-      if (store.mp_collector_id) {
-        preferenceBody.collector_id = parseInt(store.mp_collector_id);
-        console.log(`Using store's collector_id: ${store.mp_collector_id}`);
+      // Determinar qué access_token usar:
+      // - Si la tienda tiene mp_access_token (OAuth), usar el del vendedor (modelo marketplace)
+      // - Si no, usar el de Grumo (fallback, todo va a Grumo)
+      const useSellerToken = !!store.mp_access_token;
+      const accessTokenToUse = useSellerToken ? store.mp_access_token : GRUMO_MP_ACCESS_TOKEN;
+
+      if (useSellerToken) {
+        console.log(`Using seller's access_token for ${storeDomain} (marketplace model)`);
       } else {
-        console.log(`Store ${storeDomain} has no collector_id, payment goes to Grumo`);
-        // Sin collector_id, no cobramos marketplace_fee (todo va a Grumo)
+        console.log(`Store ${storeDomain} has no access_token, payment goes to Grumo`);
+        // Sin token del vendedor, no cobramos marketplace_fee (todo va a Grumo)
         delete preferenceBody.marketplace_fee;
       }
 
       try {
-        // Crear preferencia en MP
+        // Crear preferencia en MP usando el token apropiado
         const mpResponse = await fetch('https://api.mercadopago.com/checkout/preferences', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${GRUMO_MP_ACCESS_TOKEN}`,
+            Authorization: `Bearer ${accessTokenToUse}`,
           },
           body: JSON.stringify(preferenceBody),
         });
@@ -226,8 +229,8 @@ serve(async (req) => {
           mp_preference_id: mpData.id,
           mp_collector_id: store.mp_collector_id || null,
           gross_amount: totalAmount,
-          application_fee: store.mp_collector_id ? applicationFee : 0,
-          net_to_store: store.mp_collector_id ? (totalAmount - applicationFee) : totalAmount,
+          application_fee: useSellerToken ? applicationFee : 0,
+          net_to_store: useSellerToken ? (totalAmount - applicationFee) : totalAmount,
           status: 'pending',
         });
 
