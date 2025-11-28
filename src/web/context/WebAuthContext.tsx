@@ -81,24 +81,31 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
 
         console.log('[WebAuth] Auth state changed:', event);
 
-        // Ignore TOKEN_REFRESHED events - they don't change auth state
-        if (event === 'TOKEN_REFRESHED') {
+        // Ignore TOKEN_REFRESHED and INITIAL_SESSION events
+        if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
           return;
         }
 
         // For SIGNED_IN, update state
         if (event === 'SIGNED_IN' && newSession?.user) {
+          console.log('[WebAuth] Processing SIGNED_IN for:', newSession.user.email);
           setSession(newSession);
           setUser(newSession.user);
-          // Don't set loading here - let the component handle it
           await loadAdminUser(newSession.user.id);
+          if (isMounted) {
+            setLoading(false);
+          }
         }
 
         // For SIGNED_OUT, clear state
         if (event === 'SIGNED_OUT') {
+          console.log('[WebAuth] Processing SIGNED_OUT');
           setSession(null);
           setUser(null);
           setAdminUser(null);
+          if (isMounted) {
+            setLoading(false);
+          }
         }
       }
     );
