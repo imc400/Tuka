@@ -109,9 +109,25 @@ export default function LoginPage({ onAuthSuccess }: LoginPageProps) {
       return;
     }
 
+    const emailLower = email.toLowerCase().trim();
+
     try {
+      // First, check if user already has an admin_users entry
+      const { data: existingAdmin } = await supabase
+        .from('admin_users')
+        .select('*')
+        .eq('email', emailLower)
+        .single();
+
+      if (existingAdmin) {
+        setError('Ya tienes una solicitud de acceso. Usa "Iniciar sesión" o espera la aprobación del administrador.');
+        setLoading(false);
+        return;
+      }
+
+      // Try to sign up new user
       const { data, error: authError } = await supabase.auth.signUp({
-        email: email.toLowerCase().trim(),
+        email: emailLower,
         password,
         options: {
           data: {
@@ -121,8 +137,48 @@ export default function LoginPage({ onAuthSuccess }: LoginPageProps) {
       });
 
       if (authError) {
+        // If user already exists in auth (app user), try to sign in and create admin entry
         if (authError.message.includes('already registered')) {
-          setError('Este email ya está registrado');
+          // Try to sign in with provided credentials
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+            email: emailLower,
+            password,
+          });
+
+          if (signInError) {
+            setError('Este email ya está registrado en la app. Usa la misma contraseña de tu cuenta de la app, o recupera tu contraseña.');
+            setLoading(false);
+            return;
+          }
+
+          if (signInData.user) {
+            // User exists and password is correct - create admin_users entry
+            const { error: insertError } = await supabase.from('admin_users').insert({
+              user_id: signInData.user.id,
+              email: emailLower,
+              full_name: name || signInData.user.user_metadata?.full_name || 'Usuario',
+              role: 'store_owner',
+              is_active: false,
+            });
+
+            if (insertError) {
+              // Check if it's a duplicate key error (already has admin entry)
+              if (insertError.code === '23505') {
+                setError('Ya tienes una solicitud de acceso pendiente.');
+              } else {
+                setError('Error al crear solicitud de acceso');
+              }
+              await supabase.auth.signOut();
+              setLoading(false);
+              return;
+            }
+
+            await supabase.auth.signOut();
+            setSuccess('Solicitud creada exitosamente. El administrador debe aprobar tu acceso.');
+            setMode('login');
+            resetForm();
+            return;
+          }
         } else {
           setError(authError.message);
         }
@@ -130,13 +186,13 @@ export default function LoginPage({ onAuthSuccess }: LoginPageProps) {
       }
 
       if (data.user) {
-        // Create admin_users entry with pending status
+        // New user created - add admin_users entry
         await supabase.from('admin_users').insert({
           user_id: data.user.id,
-          email: email.toLowerCase().trim(),
+          email: emailLower,
           full_name: name,
           role: 'store_owner',
-          is_active: false, // Needs Super Admin approval
+          is_active: false,
         });
 
         setSuccess('Cuenta creada exitosamente. El administrador debe aprobar tu acceso.');
