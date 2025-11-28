@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { supabaseWeb as supabase } from '../../../lib/supabaseWeb';
 import type { Store } from '../../types';
-import { CHILE_REGIONS, type Region } from '../../data/chileRegions';
+import { CHILE_REGIONS, type Region, type Commune, getRegionByCode } from '../../data/chileRegions';
 
 interface ShippingTabProps {
   store: Store;
@@ -74,6 +74,16 @@ interface ShippingRate {
   is_active: boolean;
 }
 
+interface CommuneRate {
+  id?: string;
+  zone_id?: string;
+  commune_code: string;
+  commune_name: string;
+  price_adjustment: number;
+  fixed_price: number | null;
+  is_active: boolean;
+}
+
 interface ShippingZone {
   id?: string;
   region_code: string;
@@ -82,7 +92,9 @@ interface ShippingZone {
   has_commune_breakdown: boolean;
   is_active: boolean;
   methods: ShippingMethod[];
+  commune_rates: CommuneRate[];
   isExpanded?: boolean;
+  showCommunes?: boolean;
 }
 
 interface FreeShippingRule {
@@ -196,6 +208,13 @@ export default function ShippingTab({ store }: ShippingTabProps) {
               })
             );
 
+            // Cargar tarifas por comuna si existen
+            const { data: communeRatesData } = await supabase
+              .from('store_shipping_commune_rates')
+              .select('*')
+              .eq('zone_id', zone.id)
+              .order('commune_name');
+
             return {
               id: zone.id,
               region_code: zone.region_code,
@@ -204,7 +223,9 @@ export default function ShippingTab({ store }: ShippingTabProps) {
               has_commune_breakdown: zone.has_commune_breakdown,
               is_active: zone.is_active,
               methods,
+              commune_rates: communeRatesData || [],
               isExpanded: false,
+              showCommunes: false,
             };
           })
         );
@@ -371,6 +392,20 @@ export default function ShippingTab({ store }: ShippingTabProps) {
               });
             }
           }
+
+          // Insertar tarifas por comuna si está habilitado
+          if (zone.has_commune_breakdown && zone.commune_rates.length > 0) {
+            for (const communeRate of zone.commune_rates) {
+              await supabase.from('store_shipping_commune_rates').insert({
+                zone_id: zoneData.id,
+                commune_code: communeRate.commune_code,
+                commune_name: communeRate.commune_name,
+                price_adjustment: communeRate.price_adjustment,
+                fixed_price: communeRate.fixed_price,
+                is_active: communeRate.is_active,
+              });
+            }
+          }
         }
       }
 
@@ -413,6 +448,15 @@ export default function ShippingTab({ store }: ShippingTabProps) {
   function addZone(region: Region) {
     if (zones.find((z) => z.region_code === region.code)) return;
 
+    // Crear tarifas por comuna con precio base 0 (usará precio de la zona)
+    const communeRates: CommuneRate[] = region.communes.map((commune) => ({
+      commune_code: commune.code,
+      commune_name: commune.name,
+      price_adjustment: 0,
+      fixed_price: null,
+      is_active: true,
+    }));
+
     setZones([
       ...zones,
       {
@@ -443,7 +487,9 @@ export default function ShippingTab({ store }: ShippingTabProps) {
             ],
           },
         ],
+        commune_rates: communeRates,
         isExpanded: true,
+        showCommunes: false,
       },
     ]);
   }
@@ -489,7 +535,15 @@ export default function ShippingTab({ store }: ShippingTabProps) {
           ],
         },
       ],
+      commune_rates: region.communes.map((commune) => ({
+        commune_code: commune.code,
+        commune_name: commune.name,
+        price_adjustment: 0,
+        fixed_price: null,
+        is_active: true,
+      })),
       isExpanded: false,
+      showCommunes: false,
     }));
 
     setZones([...zones, ...newZones]);
@@ -644,6 +698,53 @@ export default function ShippingTab({ store }: ShippingTabProps) {
               rates: method.rates.filter((_, idx) => idx !== rateIndex),
             };
           }),
+        };
+      })
+    );
+  }
+
+  // === FUNCIONES PARA COMUNAS ===
+
+  function toggleShowCommunes(regionCode: string) {
+    setZones(
+      zones.map((z) => (z.region_code === regionCode ? { ...z, showCommunes: !z.showCommunes } : z))
+    );
+  }
+
+  function toggleCommuneBreakdown(regionCode: string) {
+    setZones(
+      zones.map((z) => {
+        if (z.region_code !== regionCode) return z;
+        return { ...z, has_commune_breakdown: !z.has_commune_breakdown };
+      })
+    );
+  }
+
+  function updateCommuneRate(regionCode: string, communeCode: string, updates: Partial<CommuneRate>) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          commune_rates: zone.commune_rates.map((cr) =>
+            cr.commune_code === communeCode ? { ...cr, ...updates } : cr
+          ),
+        };
+      })
+    );
+  }
+
+  function setAllCommunesPriceInZone(regionCode: string, fixedPrice: number | null) {
+    setZones(
+      zones.map((zone) => {
+        if (zone.region_code !== regionCode) return zone;
+        return {
+          ...zone,
+          commune_rates: zone.commune_rates.map((cr) => ({
+            ...cr,
+            fixed_price: fixedPrice,
+            price_adjustment: 0,
+          })),
         };
       })
     );
@@ -878,6 +979,96 @@ export default function ShippingTab({ store }: ShippingTabProps) {
                       {/* Contenido expandido de zona */}
                       {zone.isExpanded && (
                         <div className="p-4 border-t border-gray-200 space-y-4">
+                          {/* Toggle para habilitar precios por comuna */}
+                          <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
+                            <div className="flex items-center gap-3">
+                              <MapPin size={18} className="text-purple-600" />
+                              <div>
+                                <p className="font-medium text-gray-900 text-sm">Precios diferenciados por comuna</p>
+                                <p className="text-xs text-gray-500">Asigna precios distintos a cada comuna de esta región</p>
+                              </div>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={zone.has_commune_breakdown}
+                                onChange={() => toggleCommuneBreakdown(zone.region_code)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                            </label>
+                          </div>
+
+                          {/* Comunas - solo si está habilitado */}
+                          {zone.has_commune_breakdown && (
+                            <div className="border border-purple-200 rounded-lg overflow-hidden">
+                              <div
+                                className="flex items-center justify-between p-3 bg-purple-100 cursor-pointer"
+                                onClick={() => toggleShowCommunes(zone.region_code)}
+                              >
+                                <div className="flex items-center gap-2">
+                                  {zone.showCommunes ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                  <span className="font-medium text-purple-900 text-sm">
+                                    Comunas ({zone.commune_rates.length})
+                                  </span>
+                                </div>
+                                <span className="text-xs text-purple-600">
+                                  Click para {zone.showCommunes ? 'ocultar' : 'ver'} comunas
+                                </span>
+                              </div>
+
+                              {zone.showCommunes && (
+                                <div className="p-3 space-y-2 max-h-80 overflow-y-auto">
+                                  {/* Botón para aplicar precio a todas */}
+                                  <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg mb-3">
+                                    <span className="text-xs text-gray-600">Aplicar a todas:</span>
+                                    <input
+                                      type="number"
+                                      placeholder="Precio fijo"
+                                      className="w-24 p-1.5 border border-gray-300 rounded text-xs"
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          const value = parseInt((e.target as HTMLInputElement).value);
+                                          if (!isNaN(value)) {
+                                            setAllCommunesPriceInZone(zone.region_code, value);
+                                            (e.target as HTMLInputElement).value = '';
+                                          }
+                                        }
+                                      }}
+                                    />
+                                    <span className="text-xs text-gray-400">(Enter para aplicar)</span>
+                                  </div>
+
+                                  {/* Lista de comunas */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    {zone.commune_rates.map((cr) => (
+                                      <div
+                                        key={cr.commune_code}
+                                        className="flex items-center justify-between p-2 bg-white border border-gray-200 rounded-lg"
+                                      >
+                                        <span className="text-sm text-gray-700 flex-1 truncate">{cr.commune_name}</span>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs text-gray-400">$</span>
+                                          <input
+                                            type="number"
+                                            value={cr.fixed_price ?? ''}
+                                            placeholder="Base"
+                                            onChange={(e) =>
+                                              updateCommuneRate(zone.region_code, cr.commune_code, {
+                                                fixed_price: e.target.value ? parseInt(e.target.value) : null,
+                                              })
+                                            }
+                                            className="w-20 p-1.5 border border-gray-300 rounded text-xs text-right"
+                                          />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                           {/* Métodos de envío */}
                           {zone.methods.map((method) => (
                             <div
