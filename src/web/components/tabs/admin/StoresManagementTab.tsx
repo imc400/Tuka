@@ -42,6 +42,7 @@ interface StoreFormData {
   logoUrl: string;
   bannerUrl: string;
   themeColor: string;
+  commissionRate: number;
 }
 
 const initialFormData: StoreFormData = {
@@ -53,6 +54,7 @@ const initialFormData: StoreFormData = {
   logoUrl: '',
   bannerUrl: '',
   themeColor: '#9333EA',
+  commissionRate: 0,
 };
 
 export default function StoresManagementTab({
@@ -82,6 +84,7 @@ export default function StoresManagementTab({
       logoUrl: store.logo_url || '',
       bannerUrl: store.banner_url || '',
       themeColor: store.theme_color || '#9333EA',
+      commissionRate: (store.commission_rate || 0) * 100,
     });
     setShowForm(true);
   };
@@ -97,6 +100,7 @@ export default function StoresManagementTab({
         logo_url: formData.logoUrl,
         banner_url: formData.bannerUrl,
         theme_color: formData.themeColor,
+        commission_rate: formData.commissionRate / 100,
       };
 
       if (formData.storefrontToken) {
@@ -133,6 +137,7 @@ export default function StoresManagementTab({
         logo_url: formData.logoUrl,
         banner_url: formData.bannerUrl,
         theme_color: formData.themeColor,
+        commission_rate: formData.commissionRate / 100,
         is_hidden: true,
       });
 
@@ -466,6 +471,26 @@ export default function StoresManagementTab({
                   />
                   <p className="text-xs text-amber-600 mt-1">Necesario para crear órdenes automáticas</p>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Comisión Grumo (%)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                      className="w-full p-3 border border-green-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 outline-none bg-green-50"
+                      placeholder="0"
+                      value={formData.commissionRate}
+                      onChange={(e) => setFormData({ ...formData, commissionRate: parseFloat(e.target.value) || 0 })}
+                    />
+                    <span className="text-gray-500 font-medium">%</span>
+                  </div>
+                  <p className="text-xs text-green-600 mt-1">Porcentaje que Grumo cobra por cada venta (0 = gratis)</p>
+                </div>
               </div>
 
               {/* Right Column - Branding */}
@@ -616,11 +641,24 @@ export default function StoresManagementTab({
 
             {/* Store Info */}
             <div className="pt-8 px-4 pb-4">
-              <h3 className="font-semibold text-gray-900">{store.store_name || store.domain}</h3>
-              <p className="text-xs text-gray-500 mb-3">{store.domain}</p>
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-semibold text-gray-900">{store.store_name || store.domain}</h3>
+                  <p className="text-xs text-gray-500">{store.domain}</p>
+                </div>
+                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                  (store.commission_rate || 0) === 0
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-purple-100 text-purple-700'
+                }`}>
+                  {((store.commission_rate || 0) * 100).toFixed(0)}% comisión
+                </span>
+              </div>
 
-              {store.description && (
-                <p className="text-sm text-gray-600 mb-3 line-clamp-2">{store.description}</p>
+              {store.description ? (
+                <p className="text-sm text-gray-600 mt-2 mb-3 line-clamp-2">{store.description}</p>
+              ) : (
+                <div className="mb-3" />
               )}
 
               {/* Action Buttons */}
