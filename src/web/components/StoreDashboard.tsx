@@ -19,7 +19,9 @@ import {
   TrendingUp,
   ChevronRight,
   Wallet,
+  LogOut,
 } from 'lucide-react';
+import { useWebAuth } from '../context/WebAuthContext';
 import type { Store, StoreTabType } from '../types';
 import NotificationsTab from './tabs/NotificationsTab';
 import AnalyticsTab from './tabs/AnalyticsTab';
@@ -69,6 +71,7 @@ const MENU_SECTIONS = [
 ];
 
 export default function StoreDashboard({ store, onBack, onStoreUpdated }: StoreDashboardProps) {
+  const { isSuperAdmin, signOut, adminUser } = useWebAuth();
   const [activeTab, setActiveTab] = useState<StoreTabType>('analytics');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -115,13 +118,16 @@ export default function StoreDashboard({ store, onBack, onStoreUpdated }: StoreD
               className={sidebarCollapsed ? 'h-8 w-8 object-contain' : 'h-7 object-contain'}
             />
           </div>
-          <button
-            onClick={onBack}
-            className={`flex items-center gap-2 text-gray-500 hover:text-gray-900 text-sm transition-colors ${sidebarCollapsed ? 'justify-center w-full' : ''}`}
-          >
-            <ArrowLeft size={16} />
-            {!sidebarCollapsed && <span>Volver a tiendas</span>}
-          </button>
+          {/* Solo mostrar "Volver a tiendas" para super admin */}
+          {isSuperAdmin && (
+            <button
+              onClick={onBack}
+              className={`flex items-center gap-2 text-gray-500 hover:text-gray-900 text-sm transition-colors ${sidebarCollapsed ? 'justify-center w-full' : ''}`}
+            >
+              <ArrowLeft size={16} />
+              {!sidebarCollapsed && <span>Volver a tiendas</span>}
+            </button>
+          )}
         </div>
 
         {/* Store Info */}
@@ -201,7 +207,21 @@ export default function StoreDashboard({ store, onBack, onStoreUpdated }: StoreD
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="p-4 border-t border-gray-200">
+        <div className="p-4 border-t border-gray-200 space-y-2">
+          {/* User info and logout */}
+          {!sidebarCollapsed && adminUser && (
+            <div className="px-3 py-2 text-xs text-gray-500 truncate">
+              {adminUser.email}
+            </div>
+          )}
+          <button
+            onClick={signOut}
+            className={`w-full flex items-center gap-2 px-3 py-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`}
+            title={sidebarCollapsed ? 'Cerrar sesión' : undefined}
+          >
+            <LogOut size={18} />
+            {!sidebarCollapsed && <span className="text-sm">Cerrar sesión</span>}
+          </button>
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
